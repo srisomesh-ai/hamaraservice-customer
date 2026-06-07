@@ -198,12 +198,12 @@ class _LoginScreenState extends State<LoginScreen> {
 
                 const SizedBox(height: 24),
                 Center(
-                  child: Text(
-                    'By continuing you agree to our Terms & Privacy Policy',
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(fontFamily: 'Sora', fontSize: 12, color: AppColors.muted),
-                  ),
-                ),
+  child: Text(
+    'By continuing you agree to our Terms & Privacy Policy',
+    textAlign: TextAlign.center,
+    style: TextStyle(fontSize: 12, color: AppColors.muted),
+  ),
+),
                 const SizedBox(height: 32),
               ],
             ),

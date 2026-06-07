@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 class AppColors {
   static const brand     = Color(0xFFE8651A);
@@ -27,27 +26,13 @@ class AppTheme {
       seedColor: AppColors.brand,
       primary: AppColors.brand,
       secondary: AppColors.teal,
-      background: AppColors.bg,
       surface: AppColors.white,
     ),
     scaffoldBackgroundColor: AppColors.bg,
-    textTheme: GoogleFonts.soraTextTheme().copyWith(
-      displayLarge:  GoogleFonts.sora(fontWeight: FontWeight.w800, color: AppColors.ink),
-      displayMedium: GoogleFonts.sora(fontWeight: FontWeight.w700, color: AppColors.ink),
-      titleLarge:    GoogleFonts.sora(fontWeight: FontWeight.w700, color: AppColors.ink),
-      titleMedium:   GoogleFonts.sora(fontWeight: FontWeight.w600, color: AppColors.ink),
-      bodyLarge:     GoogleFonts.sora(fontWeight: FontWeight.w400, color: AppColors.ink2),
-      bodyMedium:    GoogleFonts.sora(fontWeight: FontWeight.w400, color: AppColors.ink2),
-      bodySmall:     GoogleFonts.sora(fontWeight: FontWeight.w400, color: AppColors.muted),
-    ),
-    appBarTheme: AppBarTheme(
+    appBarTheme: const AppBarTheme(
       backgroundColor: AppColors.teal,
       foregroundColor: AppColors.white,
       elevation: 0,
-      centerTitle: false,
-      titleTextStyle: GoogleFonts.sora(
-        fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.white,
-      ),
     ),
     elevatedButtonTheme: ElevatedButtonThemeData(
       style: ElevatedButton.styleFrom(
@@ -55,7 +40,6 @@ class AppTheme {
         foregroundColor: AppColors.white,
         minimumSize: const Size(double.infinity, 52),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        textStyle: GoogleFonts.sora(fontSize: 15, fontWeight: FontWeight.w700),
         elevation: 0,
       ),
     ),
@@ -67,6 +51,23 @@ class AppTheme {
         borderSide: const BorderSide(color: AppColors.line),
       ),
       enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: AppColors.line),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: AppColors.teal, width: 2),
+      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+    ),
+  );
+}
+
+class AppConstants {
+  static const firebaseDbUrl =
+      'https://hamaraservice-s009-default-rtdb.asia-southeast1.firebasedatabase.app';
+  static const appName = 'HamaraService';
+}      enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
         borderSide: const BorderSide(color: AppColors.line),
       ),

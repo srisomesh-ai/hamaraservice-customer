@@ -1,5 +1,5 @@
 // ignore_for_file: duplicate_import
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' show ThemeData, ColorScheme, Color, AppBarTheme, ElevatedButtonThemeData, ElevatedButton, RoundedRectangleBorder, BorderRadius, InputDecorationTheme, OutlineInputBorder, BorderSide, EdgeInsets, Size, TextStyle, FontWeight, Colors;
 
 class AppColors {
   static const brand     = Color(0xFFE8651A);

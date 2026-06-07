@@ -6,8 +6,8 @@ class DefaultFirebaseOptions {
   static FirebaseOptions get currentPlatform => android;
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyDpMpewyKVlfsfSeKfoS3GJf0V_t14Qb7k',
-    appId: '1:1064274729048:android:4e70e7686be47c7281d22d',
+    apiKey: 'YOUR_API_KEY',
+    appId: 'YOUR_APP_ID',
     messagingSenderId: '1064274729048',
     projectId: 'hamaraservice-s009',
     databaseURL:

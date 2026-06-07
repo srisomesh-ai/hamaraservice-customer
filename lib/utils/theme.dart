@@ -1,3 +1,4 @@
+// ignore_for_file: duplicate_import
 import 'package:flutter/material.dart';
 
 class AppColors {

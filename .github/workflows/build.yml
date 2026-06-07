@@ -1,4 +1,4 @@
-cat << 'EOF'
+cat << 'ENDOFFILE'
 name: Build APK
 
 on:
@@ -9,48 +9,24 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Java
-        uses: actions/setup-java@v4
+      - uses: actions/setup-java@v4
         with:
-          distribution: 'zulu'
+          distribution: zulu
           java-version: '17'
 
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.19.0'
-          channel: 'stable'
-          cache: true
+          flutter-version: 3.19.0
+          channel: stable
 
       - name: Create google-services.json
-        run: |
-          echo '${{ secrets.GOOGLE_SERVICES_JSON }}' > android/app/google-services.json
-
-      - name: Create firebase_options.dart
-        run: |
-          cat > lib/firebase_options.dart << 'DARTEOF'
-          import 'package:firebase_core/firebase_core.dart';
-          class DefaultFirebaseOptions {
-            static FirebaseOptions get currentPlatform => android;
-            static const FirebaseOptions android = FirebaseOptions(
-              apiKey: '${{ secrets.FIREBASE_API_KEY }}',
-              appId: '${{ secrets.FIREBASE_APP_ID }}',
-              messagingSenderId: '1064274729048',
-              projectId: 'hamaraservice-s009',
-              databaseURL: 'https://hamaraservice-s009-default-rtdb.asia-southeast1.firebasedatabase.app',
-              storageBucket: 'hamaraservice-s009.firebasestorage.app',
-            );
-          }
-          DARTEOF
+        run: echo '${{ secrets.GOOGLE_SERVICES_JSON }}' > android/app/google-services.json
 
       - name: Create asset directories
-        run: |
-          mkdir -p assets/images assets/icons assets/animations assets/fonts
+        run: mkdir -p assets/images assets/icons assets/animations assets/fonts
 
       - name: Get dependencies
         run: flutter pub get
@@ -64,3 +40,4 @@ jobs:
           name: hamaraservice-customer-apk
           path: build/app/outputs/flutter-apk/app-release.apk
           retention-days: 30
+ENDOFFILE

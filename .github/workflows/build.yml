@@ -1,3 +1,4 @@
+cat << 'EOF'
 name: Build APK
 
 on:
@@ -24,6 +25,7 @@ jobs:
         with:
           flutter-version: '3.19.0'
           channel: 'stable'
+          cache: true
 
       - name: Create google-services.json
         run: |
@@ -31,7 +33,7 @@ jobs:
 
       - name: Create firebase_options.dart
         run: |
-          cat > lib/firebase_options.dart << 'EOF'
+          cat > lib/firebase_options.dart << 'DARTEOF'
           import 'package:firebase_core/firebase_core.dart';
           class DefaultFirebaseOptions {
             static FirebaseOptions get currentPlatform => android;
@@ -44,14 +46,14 @@ jobs:
               storageBucket: 'hamaraservice-s009.firebasestorage.app',
             );
           }
-          EOF
-
-      - name: Get dependencies
-        run: flutter pub get
+          DARTEOF
 
       - name: Create asset directories
         run: |
           mkdir -p assets/images assets/icons assets/animations assets/fonts
+
+      - name: Get dependencies
+        run: flutter pub get
 
       - name: Build APK
         run: flutter build apk --release --no-tree-shake-icons

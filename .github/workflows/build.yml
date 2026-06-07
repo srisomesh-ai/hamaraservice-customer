@@ -18,7 +18,7 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: 3.19.0
+          flutter-version: '3.19.0'
           channel: stable
 
       - name: Create google-services.json
@@ -26,6 +26,36 @@ jobs:
 
       - name: Create asset directories
         run: mkdir -p assets/images assets/icons assets/animations assets/fonts
+
+      - name: Create local.properties
+        run: |
+          FLUTTER_PATH=$(dirname $(which flutter))
+          echo "flutter.sdk=${FLUTTER_PATH%/bin}" > android/local.properties
+          echo "sdk.dir=$ANDROID_HOME" >> android/local.properties
+
+      - name: Create settings.gradle
+        run: |
+          cat > android/settings.gradle << 'SETTINGSEOF'
+          include ':app'
+          def localPropertiesFile = new File(rootProject.projectDir, "local.properties")
+          def properties = new Properties()
+          assert localPropertiesFile.exists()
+          localPropertiesFile.withReader("UTF-8") { reader -> properties.load(reader) }
+          def flutterSdkPath = properties.getProperty("flutter.sdk")
+          assert flutterSdkPath != null, "flutter.sdk not set in local.properties"
+          apply from: "$flutterSdkPath/packages/flutter_tools/gradle/app_plugin_loader.gradle"
+          SETTINGSEOF
+
+      - name: Create gradle wrapper
+        run: |
+          mkdir -p android/gradle/wrapper
+          cat > android/gradle/wrapper/gradle-wrapper.properties << 'GRADLEEOF'
+          distributionBase=GRADLE_USER_HOME
+          distributionPath=wrapper/dists
+          zipStoreBase=GRADLE_USER_HOME
+          zipStorePath=wrapper/dists
+          distributionUrl=https\://services.gradle.org/distributions/gradle-8.0-all.zip
+          GRADLEEOF
 
       - name: Get dependencies
         run: flutter pub get

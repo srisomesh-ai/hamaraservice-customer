@@ -7,7 +7,8 @@ import 'booking_confirmed_screen.dart';
 class BookingFlowScreen extends StatefulWidget {
   final Map<String, dynamic> service;
   final int basePrice;
-  const BookingFlowScreen({super.key, required this.service, required this.basePrice});
+  final List<String> summary;
+  const BookingFlowScreen({super.key, required this.service, required this.basePrice, this.summary = const []});
 
   @override
   State<BookingFlowScreen> createState() => _BookingFlowScreenState();
@@ -74,7 +75,7 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
         'customerId':  user?.uid ?? '',
         'customerEmail': user?.email ?? '',
         'status':      'confirmed',
-        'summary':     ['${widget.service['name']} > Service booking'],
+        'summary': widget.summary.isNotEmpty ? widget.summary : ['${widget.service['name']} > Service booking'],
       });
       if (mounted) {
         Navigator.pushReplacement(context,

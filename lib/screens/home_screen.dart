@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_database/firebase_database.dart';
-import 'booking/service_detail_screen.dart';
 import '../utils/theme.dart';
 import '../services/firebase_service.dart';
 import 'login_screen.dart';
+import 'booking/service_detail_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});

@@ -32,19 +32,26 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
   String _selectedSlot = '09:00 AM';
 
   @override
-  void initState() {
-    super.initState();
-    final user = FirebaseAuth.instance.currentUser;
-    _nameCtrl.text  = user?.displayName ?? '';
-    _phoneCtrl.text = user?.phoneNumber ?? '';
-  }
+void initState() {
+  super.initState();
+  _loadProfileData();
+}
 
-  @override
-  void dispose() {
-    _addressCtrl.dispose(); _landmarkCtrl.dispose();
-    _nameCtrl.dispose(); _phoneCtrl.dispose();
-    super.dispose();
-  }
+Future<void> _loadProfileData() async {
+  final user = FirebaseAuth.instance.currentUser;
+  _nameCtrl.text  = user?.displayName ?? '';
+  _phoneCtrl.text = user?.phoneNumber ?? '';
+  try {
+    final snap = await FirebaseDatabase.instance
+        .ref('customers/${user?.uid}').get();
+    if (snap.exists) {
+      final data = Map<String, dynamic>.from(snap.value as Map);
+      _nameCtrl.text    = data['name']    ?? _nameCtrl.text;
+      _phoneCtrl.text   = data['phone']   ?? _phoneCtrl.text;
+      _addressCtrl.text = data['address'] ?? '';
+    }
+  } catch (e) {}
+}
 
   Future<void> _confirmBooking() async {
     if (_addressCtrl.text.trim().isEmpty) {

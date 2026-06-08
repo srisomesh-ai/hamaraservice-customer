@@ -30,7 +30,8 @@ class _SplashScreenState extends State<SplashScreen>
   Future<void> _navigate() async {
     await Future.delayed(const Duration(seconds: 2));
     if (!mounted) return;
-    final user = FirebaseAuth.instance.currentUser;
+    User? user;
+try { user = FirebaseAuth.instance.currentUser; } catch(e) { user = null; }
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(

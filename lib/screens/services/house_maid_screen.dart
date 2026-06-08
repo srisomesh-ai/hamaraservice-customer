@@ -280,8 +280,8 @@ class _HouseMaidScreenState extends State<HouseMaidScreen> {
       child: _any
           ? Row(children: [
               Expanded(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-                const Text('ESTIMATED TOTAL', style: TextStyle(fontSize: 10, color: Colors.white70, fontWeight: FontWeight.w700)),
-                Text('₹$_total', style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: Colors.white)),
+                const Text('ESTIMATED TOTAL', style: TextStyle(fontSize: 10, color: Colors.white70, fontWeight: FontWeight.w700), overflow: TextOverflow.ellipsis, maxLines: 1),
+                Text('₹$_total', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: Colors.white), overflow: TextOverflow.ellipsis, maxLines: 1),
               ])),
               ElevatedButton(
                 onPressed: () => Navigator.push(context, MaterialPageRoute(

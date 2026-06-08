@@ -4,6 +4,7 @@ import '../utils/theme.dart';
 import '../services/firebase_service.dart';
 import 'login_screen.dart';
 import 'booking/service_detail_screen.dart';
+import 'services/house_maid_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -72,11 +73,14 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _onServiceTap(Map<String, dynamic> svc) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => ServiceDetailScreen(service: svc)),
-    );
+  final id = svc['id'] as String;
+  if (id == 'SVC001') {
+    Navigator.push(context, MaterialPageRoute(builder: (_) => const HouseMaidScreen()));
+    return;
   }
+  Navigator.push(context,
+    MaterialPageRoute(builder: (_) => ServiceDetailScreen(service: svc)));
+}
 
   @override
   Widget build(BuildContext context) {

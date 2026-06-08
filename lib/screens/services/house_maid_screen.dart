@@ -184,7 +184,7 @@ class _HouseMaidScreenState extends State<HouseMaidScreen> {
             onTap: () => onSel(k),
             child: Container(
               width: 85,
-              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: BoxDecoration(
                 color: sel ? AppColors.brand : Colors.white,
                 borderRadius: BorderRadius.circular(10),

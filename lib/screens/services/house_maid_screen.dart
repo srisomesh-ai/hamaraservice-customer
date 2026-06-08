@@ -272,28 +272,29 @@ class _HouseMaidScreenState extends State<HouseMaidScreen> {
   }
 
   Widget _bottomBar() {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
-      decoration: BoxDecoration(
-        color: _any ? AppColors.teal : Colors.white,
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 12, offset: const Offset(0, -4))],
-      ),
-      child: _any
-          ? Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('ESTIMATED TOTAL',
-                      style: TextStyle(fontSize: 10, color: Colors.white70, fontWeight: FontWeight.w700)),
-                    const SizedBox(height: 2),
-                    Text('₹$_total',
-                      style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: Colors.white)),
-                  ],
-                ),
-                ElevatedButton(
+  return Container(
+    padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+    decoration: BoxDecoration(
+      color: _any ? AppColors.teal : Colors.white,
+      boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 12, offset: const Offset(0, -4))],
+    ),
+    child: _any
+        ? Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('ESTIMATED TOTAL',
+                    style: TextStyle(fontSize: 11, color: Colors.white70, fontWeight: FontWeight.w700)),
+                  Text('₹$_total',
+                    style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: Colors.white)),
+                ],
+              ),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
                   onPressed: () => Navigator.push(context, MaterialPageRoute(
                     builder: (_) => BookingFlowScreen(
                       service: {'id':'SVC001','icon':'🧹','name':'House Maid','cat':'Home Cleaning','color':0xFFE3F2FD},
@@ -303,17 +304,18 @@ class _HouseMaidScreenState extends State<HouseMaidScreen> {
                   )),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.brand,
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                    minimumSize: const Size(double.infinity, 48),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                   ),
                   child: const Text('Book Now →',
-                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
                 ),
-              ],
-            )
-          : const Center(
-              child: Text('Select at least one task to book',
-                style: TextStyle(color: AppColors.muted, fontWeight: FontWeight.w600))),
-    );
-  }
+              ),
+            ],
+          )
+        : const Center(
+            child: Text('Select at least one task to book',
+              style: TextStyle(color: AppColors.muted, fontWeight: FontWeight.w600))),
+  );
+}
 }

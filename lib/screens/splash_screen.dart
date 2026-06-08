@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'intro_screen.dart';
 import '../utils/theme.dart';
 import 'login_screen.dart';
 import 'home_screen.dart';
@@ -28,17 +30,17 @@ class _SplashScreenState extends State<SplashScreen>
   }
 
   Future<void> _navigate() async {
-    await Future.delayed(const Duration(seconds: 2));
-    if (!mounted) return;
-    User? user;
-try { user = FirebaseAuth.instance.currentUser; } catch(e) { user = null; }
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(
-        builder: (_) => user != null ? const HomeScreen() : const LoginScreen(),
-      ),
-    );
+  await Future.delayed(const Duration(seconds: 2));
+  if (!mounted) return;
+  final prefs = await SharedPreferences.getInstance();
+  final introSeen = prefs.getBool('intro_seen') ?? false;
+  final user = FirebaseAuth.instance.currentUser;
+  if (!introSeen) {
+    Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const IntroScreen()));
+  } else {
+    Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => user != null ? const HomeScreen() : const LoginScreen()));
   }
+}
 
   @override
   void dispose() { _ctrl.dispose(); super.dispose(); }

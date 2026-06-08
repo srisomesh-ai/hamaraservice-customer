@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
+import 'booking/service_detail_screen.dart';
 import '../utils/theme.dart';
 import '../services/firebase_service.dart';
 import 'login_screen.dart';
@@ -223,34 +224,9 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _onServiceTap(Map<String, dynamic> svc) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (_) => Container(
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(children: [
-              Container(
-                width: 56, height: 56,
-                decoration: BoxDecoration(color: Color(svc['color'] as int), borderRadius: BorderRadius.circular(14)),
-                child: Center(child: Text(svc['icon'] as String, style: const TextStyle(fontSize: 30))),
-              ),
-              const SizedBox(width: 14),
-              Expanded(child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(svc['name'] as String, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: AppColors.ink)),
-                  Text(svc['cat'] as String, style: const TextStyle(fontSize: 13, color: AppColors.muted)),
-                ],
-              )),
-            ]),
+  Navigator.push(context,
+    MaterialPageRoute(builder: (_) => ServiceDetailScreen(service: svc)));
+}
             const SizedBox(height: 20),
             const Text('This service will be available for booking soon.\nFull booking flow coming in the next update!',
               style: TextStyle(fontSize: 14, color: AppColors.ink2, height: 1.5)),

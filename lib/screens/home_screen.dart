@@ -66,7 +66,17 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   @override
-  void dispose() { _searchCtrl.dispose(); super.dispose(); }
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  void _onServiceTap(Map<String, dynamic> svc) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => ServiceDetailScreen(service: svc)),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -86,8 +96,14 @@ class _HomeScreenState extends State<HomeScreen> {
           BottomNavigationBarItem(icon: Icon(Icons.person_rounded), label: 'Profile'),
         ],
       ),
-      body: _currentIndex == 0 ? _buildHome() :
-            _currentIndex == 1 ? _buildBookings() : _buildProfile(),
+      body: IndexedStack(
+        index: _currentIndex,
+        children: [
+          _buildHome(),
+          _buildBookings(),
+          _buildProfile(),
+        ],
+      ),
     );
   }
 
@@ -103,7 +119,8 @@ class _HomeScreenState extends State<HomeScreen> {
             background: Container(
               decoration: const BoxDecoration(
                 gradient: LinearGradient(
-                  begin: Alignment.topLeft, end: Alignment.bottomRight,
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
                   colors: [Color(0xFF0D3D47), AppColors.teal],
                 ),
               ),
@@ -120,17 +137,32 @@ class _HomeScreenState extends State<HomeScreen> {
                         children: [
                           Text(
                             'Hello, ${_user?.displayName?.split(' ').first ?? 'there'} 👋',
-                            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.white),
+                            style: const TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.white,
+                            ),
                           ),
-                          const Text('What service do you need?', style: TextStyle(fontSize: 13, color: Colors.white70)),
+                          const Text(
+                            'What service do you need?',
+                            style: TextStyle(fontSize: 13, color: Colors.white70),
+                          ),
                         ],
                       ),
                       CircleAvatar(
                         radius: 20,
                         backgroundColor: AppColors.brand,
-                        backgroundImage: _user?.photoURL != null ? NetworkImage(_user!.photoURL!) : null,
+                        backgroundImage: _user?.photoURL != null
+                            ? NetworkImage(_user!.photoURL!)
+                            : null,
                         child: _user?.photoURL == null
-                            ? Text((_user?.displayName ?? 'U')[0].toUpperCase(), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700))
+                            ? Text(
+                                (_user?.displayName ?? 'U')[0].toUpperCase(),
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              )
                             : null,
                       ),
                     ],
@@ -146,7 +178,12 @@ class _HomeScreenState extends State<HomeScreen> {
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(12),
-                boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 8)],
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.08),
+                    blurRadius: 8,
+                  )
+                ],
               ),
               child: TextField(
                 controller: _searchCtrl,
@@ -155,11 +192,19 @@ class _HomeScreenState extends State<HomeScreen> {
                   hintText: 'Search services — e.g. Plumber, AC...',
                   prefixIcon: const Icon(Icons.search, color: AppColors.muted),
                   suffixIcon: _searchQuery.isNotEmpty
-                      ? IconButton(icon: const Icon(Icons.clear, color: AppColors.muted), onPressed: () { _searchCtrl.clear(); setState(() => _searchQuery = ''); })
+                      ? IconButton(
+                          icon: const Icon(Icons.clear, color: AppColors.muted),
+                          onPressed: () {
+                            _searchCtrl.clear();
+                            setState(() => _searchQuery = '');
+                          },
+                        )
                       : null,
                   border: InputBorder.none,
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                  hintStyle: const TextStyle(color: AppColors.muted, fontSize: 13),
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  hintStyle:
+                      const TextStyle(color: AppColors.muted, fontSize: 13),
                 ),
               ),
             ),
@@ -183,19 +228,29 @@ class _HomeScreenState extends State<HomeScreen> {
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(16),
-                      boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 8, offset: const Offset(0, 2))],
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.05),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        )
+                      ],
                     ),
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Container(
-                          width: 52, height: 52,
+                          width: 52,
+                          height: 52,
                           decoration: BoxDecoration(
                             color: Color(svc['color'] as int),
                             borderRadius: BorderRadius.circular(14),
                           ),
                           child: Center(
-                            child: Text(svc['icon'] as String, style: const TextStyle(fontSize: 26)),
+                            child: Text(
+                              svc['icon'] as String,
+                              style: const TextStyle(fontSize: 26),
+                            ),
                           ),
                         ),
                         const SizedBox(height: 8),
@@ -206,7 +261,11 @@ class _HomeScreenState extends State<HomeScreen> {
                             textAlign: TextAlign.center,
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.ink),
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.ink,
+                            ),
                           ),
                         ),
                       ],
@@ -222,27 +281,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _onServiceTap(Map<String, dynamic> svc) {
-  Navigator.push(context,
-    MaterialPageRoute(builder: (_) => ServiceDetailScreen(service: svc)));
-}
-            const SizedBox(height: 20),
-            const Text('This service will be available for booking soon.\nFull booking flow coming in the next update!',
-              style: TextStyle(fontSize: 14, color: AppColors.ink2, height: 1.5)),
-            const SizedBox(height: 24),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Got it'),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildBookings() {
     return Scaffold(
       appBar: AppBar(title: const Text('My Bookings')),
@@ -252,9 +290,19 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             Icon(Icons.receipt_long_rounded, size: 64, color: AppColors.muted),
             SizedBox(height: 16),
-            Text('No bookings yet', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.ink)),
+            Text(
+              'No bookings yet',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+                color: AppColors.ink,
+              ),
+            ),
             SizedBox(height: 8),
-            Text('Your bookings will appear here', style: TextStyle(color: AppColors.muted)),
+            Text(
+              'Your bookings will appear here',
+              style: TextStyle(color: AppColors.muted),
+            ),
           ],
         ),
       ),
@@ -262,6 +310,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildProfile() {
+    final user = _user;
     return Scaffold(
       appBar: AppBar(
         title: const Text('My Profile'),
@@ -270,7 +319,12 @@ class _HomeScreenState extends State<HomeScreen> {
             icon: const Icon(Icons.logout),
             onPressed: () async {
               await FirebaseService.signOut();
-              if (mounted) Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const LoginScreen()));
+              if (mounted) {
+                Navigator.pushReplacement(
+                  context,
+                  MaterialPageRoute(builder: (_) => const LoginScreen()),
+                );
+              }
             },
           ),
         ],
@@ -283,37 +337,84 @@ class _HomeScreenState extends State<HomeScreen> {
             CircleAvatar(
               radius: 44,
               backgroundColor: AppColors.teal,
-              backgroundImage: _user?.photoURL != null ? NetworkImage(_user!.photoURL!) : null,
-              child: _user?.photoURL == null
-                  ? Text((_user?.displayName ?? 'U')[0].toUpperCase(), style: const TextStyle(fontSize: 32, color: Colors.white, fontWeight: FontWeight.w700))
+              backgroundImage: user?.photoURL != null
+                  ? NetworkImage(user!.photoURL!)
+                  : null,
+              child: user?.photoURL == null
+                  ? Text(
+                      (user?.displayName ?? 'U')[0].toUpperCase(),
+                      style: const TextStyle(
+                        fontSize: 32,
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    )
                   : null,
             ),
             const SizedBox(height: 16),
-            Text(_user?.displayName ?? 'User', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: AppColors.ink)),
+            Text(
+              user?.displayName ?? 'User',
+              style: const TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+                color: AppColors.ink,
+              ),
+            ),
             const SizedBox(height: 4),
-            Text(_user?.email ?? _user?.phoneNumber ?? '', style: const TextStyle(fontSize: 14, color: AppColors.muted)),
+            Text(
+              user?.email ?? user?.phoneNumber ?? '',
+              style: const TextStyle(fontSize: 14, color: AppColors.muted),
+            ),
             const SizedBox(height: 32),
-            _profileTile(Icons.receipt_long_rounded, 'My Bookings', () => setState(() => _currentIndex = 1)),
+            _profileTile(
+              Icons.receipt_long_rounded,
+              'My Bookings',
+              () => setState(() => _currentIndex = 1),
+            ),
             _profileTile(Icons.location_on_rounded, 'Saved Addresses', () {}),
             _profileTile(Icons.help_outline_rounded, 'Help & Support', () {}),
-            _profileTile(Icons.logout, 'Sign Out', () async {
-              await FirebaseService.signOut();
-              if (mounted) Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const LoginScreen()));
-            }, color: AppColors.red),
+            _profileTile(
+              Icons.logout,
+              'Sign Out',
+              () async {
+                await FirebaseService.signOut();
+                if (mounted) {
+                  Navigator.pushReplacement(
+                    context,
+                    MaterialPageRoute(builder: (_) => const LoginScreen()),
+                  );
+                }
+              },
+              color: AppColors.red,
+            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _profileTile(IconData icon, String title, VoidCallback onTap, {Color color = AppColors.ink}) {
+  Widget _profileTile(
+    IconData icon,
+    String title,
+    VoidCallback onTap, {
+    Color color = AppColors.ink,
+  }) {
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(14), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 8)]),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 8)
+        ],
+      ),
       child: ListTile(
         leading: Icon(icon, color: color),
-        title: Text(title, style: TextStyle(fontWeight: FontWeight.w600, color: color)),
-        trailing: color == AppColors.red ? null : const Icon(Icons.chevron_right, color: AppColors.muted),
+        title: Text(title,
+            style: TextStyle(fontWeight: FontWeight.w600, color: color)),
+        trailing: color == AppColors.red
+            ? null
+            : const Icon(Icons.chevron_right, color: AppColors.muted),
         onTap: onTap,
       ),
     );

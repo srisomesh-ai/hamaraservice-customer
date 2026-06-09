@@ -88,7 +88,7 @@ Future<void> _loadProfileData() async {
       });
       if (mounted) {
         Navigator.pushReplacement(context,
-          MaterialPageRoute(builder: (_) => BookingConfirmedScreen(
+          MaterialPageRoute(builder: (_) => RadarScreen(
             bookingId: bookingId,
             service: widget.service,
             date: _selectedDate,

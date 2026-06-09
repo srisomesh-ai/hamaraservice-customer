@@ -34,11 +34,17 @@ class _SplashScreenState extends State<SplashScreen>
   if (!mounted) return;
   final prefs = await SharedPreferences.getInstance();
   final introSeen = prefs.getBool('intro_seen') ?? false;
+  final city = prefs.getString('user_city') ?? '';
   final user = FirebaseAuth.instance.currentUser;
   if (!introSeen) {
-    Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const IntroScreen()));
+    Navigator.pushReplacement(context,
+      MaterialPageRoute(builder: (_) => const IntroScreen()));
+  } else if (city.isEmpty || city == 'Your City') {
+    Navigator.pushReplacement(context,
+      MaterialPageRoute(builder: (_) => const LocationScreen()));
   } else {
-    Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => user != null ? const HomeScreen() : const LoginScreen()));
+    Navigator.pushReplacement(context,
+      MaterialPageRoute(builder: (_) => user != null ? const HomeScreen() : const LoginScreen()));
   }
 }
 

@@ -26,3 +26,11 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
+  flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "slogo-png.png"
+  min_sdk_android: 21
+  adaptive_icon_background: "#FFFFFF"
+  adaptive_icon_foreground: "slogo-png.png"

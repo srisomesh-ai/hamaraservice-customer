@@ -408,43 +408,67 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   }
 
   Widget _serviceCard(Map<String, dynamic> svc) {
-    final img = svc['img'] as String? ?? '';
-    return GestureDetector(
-      onTap: () => _onServiceTap(svc),
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 8, offset: const Offset(0, 2))],
-        ),
-        child: Column(
+  final img = svc['img'] as String? ?? '';
+  return GestureDetector(
+    onTap: () => _onServiceTap(svc),
+    child: Container(
+      decoration: BoxDecoration(
+        color: Color(svc['color'] as int),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 8, offset: const Offset(0, 2))],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: Stack(
+          fit: StackFit.expand,
           children: [
-            Expanded(
-              flex: 3,
-              child: ClipRRect(
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-                child: img.isNotEmpty
-                    ? Image.asset(img, width: double.infinity, fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => _iconBox(svc, double.infinity))
-                    : _iconBox(svc, double.infinity),
-              ),
-            ),
-            Expanded(
-              flex: 2,
-              child: Center(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 6),
-                  child: Text(svc['name'] as String,
-                    textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.ink)),
+            // Image or icon background
+            img.isNotEmpty
+                ? Image.asset(img, fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => Container(
+                      color: Color(svc['color'] as int),
+                      child: Center(child: Text(svc['icon'] as String,
+                        style: const TextStyle(fontSize: 40))),
+                    ))
+                : Container(
+                    color: Color(svc['color'] as int),
+                    child: Center(child: Text(svc['icon'] as String,
+                      style: const TextStyle(fontSize: 40))),
+                  ),
+            // Dark gradient overlay at bottom
+            Positioned(
+              bottom: 0, left: 0, right: 0,
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(8, 16, 8, 8),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.bottomCenter,
+                    end: Alignment.topCenter,
+                    colors: [
+                      Colors.black.withOpacity(0.75),
+                      Colors.transparent,
+                    ],
+                  ),
+                ),
+                child: Text(
+                  svc['name'] as String,
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                  ),
                 ),
               ),
             ),
           ],
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _iconBox(Map<String, dynamic> svc, double size) {
     return Container(

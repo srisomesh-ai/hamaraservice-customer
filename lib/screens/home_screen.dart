@@ -424,17 +424,17 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           children: [
             // Image or icon background
             img.isNotEmpty
-                ? Image.asset(img, fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => Container(
-                      color: Color(svc['color'] as int),
-                      child: Center(child: Text(svc['icon'] as String,
-                        style: const TextStyle(fontSize: 40))),
-                    ))
-                : Container(
-                    color: Color(svc['color'] as int),
-                    child: Center(child: Text(svc['icon'] as String,
-                      style: const TextStyle(fontSize: 40))),
-                  ),
+    ? Container(
+        color: Color(svc['color'] as int),
+        padding: const EdgeInsets.all(12),
+        child: Image.asset(img, fit: BoxFit.contain,
+          errorBuilder: (_, __, ___) => Center(child: Text(svc['icon'] as String,
+            style: const TextStyle(fontSize: 40)))))
+    : Container(
+        color: Color(svc['color'] as int),
+        child: Center(child: Text(svc['icon'] as String,
+          style: const TextStyle(fontSize: 40))),
+      ),
             // Dark gradient overlay at bottom
             Positioned(
               bottom: 0, left: 0, right: 0,

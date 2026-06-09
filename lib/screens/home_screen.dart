@@ -245,11 +245,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                   onTap: () => setState(() => _selectedCat = i),
                   child: Container(
                     margin: const EdgeInsets.only(right: 8),
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                     decoration: BoxDecoration(
-                      color: sel ? AppColors.brand : Colors.white.withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: sel ? AppColors.brand : Colors.white30),
+                      color: sel ? Colors.white : Colors.white.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(24),
+                      border: Border.all(color: sel ? AppColors.teal : Colors.white),
                     ),
                     child: Row(mainAxisSize: MainAxisSize.min, children: [
                       Text(_categories[i]['icon'] as String, style: const TextStyle(fontSize: 14)),

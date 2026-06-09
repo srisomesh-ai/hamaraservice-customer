@@ -297,43 +297,87 @@ Future<void> _loadProfileData() async {
   }
 
   Widget _buildConfirmStep() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text('Booking Summary', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.ink)),
-        const SizedBox(height: 16),
-        _summaryCard(),
-        const SizedBox(height: 16),
-        _infoCard(Icons.calendar_today_rounded, 'Date & Time',
-          '${_selectedDate.day}/${_selectedDate.month}/${_selectedDate.year} at $_selectedSlot'),
-        const SizedBox(height: 10),
-        _infoCard(Icons.location_on_rounded, 'Address', _addressCtrl.text.trim()),
-        const SizedBox(height: 10),
-        _infoCard(Icons.person_rounded, 'Contact',
-          '${_nameCtrl.text.trim()} · ${_phoneCtrl.text.trim()}'),
-        const SizedBox(height: 20),
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      const Text('Booking Summary', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.ink)),
+      const SizedBox(height: 16),
+      _summaryCard(),
+      const SizedBox(height: 12),
+
+      // Summary chips
+      if (widget.summary.isNotEmpty) ...[
         Container(
-          padding: const EdgeInsets.all(16),
+          width: double.infinity,
+          padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             color: AppColors.tealSoft,
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: AppColors.teal.withOpacity(0.3)),
+            border: Border.all(color: AppColors.teal.withOpacity(0.2)),
           ),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('Total Amount', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.teal)),
-              Text('₹${widget.basePrice}',
-                style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: AppColors.teal)),
+              const Text('SELECTED SERVICES', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: AppColors.teal, letterSpacing: 0.5)),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8, runSpacing: 8,
+                children: widget.summary.map((s) {
+                  final parts = s.split(' > ');
+                  return Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: AppColors.teal.withOpacity(0.3)),
+                    ),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      const Icon(Icons.check_circle_rounded, color: AppColors.teal, size: 14),
+                      const SizedBox(width: 6),
+                      Text(
+                        parts.length > 1 ? parts.sublist(1).join(' › ') : s,
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.teal),
+                      ),
+                    ]),
+                  );
+                }).toList(),
+              ),
             ],
           ),
         ),
         const SizedBox(height: 12),
-        const Text('Payment will be collected after service completion.',
-          style: TextStyle(fontSize: 12, color: AppColors.muted)),
       ],
-    );
-  }
+
+      _infoCard(Icons.calendar_today_rounded, 'Date & Time',
+        '${_selectedDate.day}/${_selectedDate.month}/${_selectedDate.year} at $_selectedSlot'),
+      const SizedBox(height: 10),
+      _infoCard(Icons.location_on_rounded, 'Address', _addressCtrl.text.trim()),
+      const SizedBox(height: 10),
+      _infoCard(Icons.person_rounded, 'Contact',
+        '${_nameCtrl.text.trim()} · ${_phoneCtrl.text.trim()}'),
+      const SizedBox(height: 20),
+      Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppColors.tealSoft,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AppColors.teal.withOpacity(0.3)),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text('Total Amount', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.teal)),
+            Text('₹${widget.basePrice}',
+              style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: AppColors.teal)),
+          ],
+        ),
+      ),
+      const SizedBox(height: 12),
+      const Text('Payment will be collected after service completion.',
+        style: TextStyle(fontSize: 12, color: AppColors.muted)),
+    ],
+  );
+}
 
   Widget _label(String text) => Text(text,
     style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.ink2));

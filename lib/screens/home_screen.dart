@@ -377,7 +377,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 ClipRRect(
                   borderRadius: BorderRadius.circular(16),
                   child: img.isNotEmpty
-                      ? Image.asset(img, width: 64, height: 64, fit: BoxFit.cover,
+                      ? Image.asset(img, width: 64, height: 64, fit: BoxFit.contain,
                           errorBuilder: (_, __, ___) => _iconBox(svc, 64))
                       : _iconBox(svc, 64),
                 ),

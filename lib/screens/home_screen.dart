@@ -42,9 +42,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   ];
 
   final List<Map<String, dynamic>> _services = [
-    {'id':'SVC001','icon':'🧹','name':'House Maid','cat':'Cleaning','color':0xFFE3F2FD,'popular':true},
-    {'id':'SVC002','icon':'🧽','name':'Deep Cleaning','cat':'Cleaning','color':0xFFE8F5E9,'popular':true},
-    {'id':'SVC003','icon':'🛀','name':'Bathroom Cleaning','cat':'Cleaning','color':0xFFF3E5F5,'popular':false},
+    {'id':'SVC001','icon':'🧹','name':'House Maid','cat':'Cleaning','color':0xFFE3F2FD,'popular':true,'img':'assets/images/house-maid.jpg'},
+    {'id':'SVC002','icon':'🧽','name':'Deep Cleaning','cat':'Cleaning','color':0xFFE8F5E9,'popular':true,'img':'assets/images/deep-cleaning.jpg'},
+    {'id':'SVC003','icon':'🛀','name':'Bathroom Cleaning','cat':'Cleaning','color':0xFFF3E5F5,'popular':false,'img':'assets/images/bathroom-cleaning.jpg'},
     {'id':'SVC004','icon':'🍳','name':'Kitchen Cleaning','cat':'Cleaning','color':0xFFFFF8E1,'popular':false},
     {'id':'SVC005','icon':'🛋️','name':'Sofa / Carpet','cat':'Cleaning','color':0xFFE0F7FA,'popular':true},
     {'id':'SVC006','icon':'🧴','name':'Laundry / Ironing','cat':'Cleaning','color':0xFFEDE7F6,'popular':false},

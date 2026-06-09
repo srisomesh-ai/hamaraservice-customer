@@ -417,34 +417,57 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   }
 
   Widget _serviceCard(Map<String, dynamic> svc) {
-    return GestureDetector(
-      onTap: () => _onServiceTap(svc),
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 8, offset: const Offset(0, 2))],
-        ),
-        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-          Container(
-            width: 52, height: 52,
-            decoration: BoxDecoration(
-              color: Color(svc['color'] as int),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: Center(child: Text(svc['icon'] as String, style: const TextStyle(fontSize: 26))),
-          ),
-          const SizedBox(height: 8),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 6),
-            child: Text(svc['name'] as String,
-              textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.ink)),
-          ),
-        ]),
+  final img = svc['img'] as String? ?? '';
+  return GestureDetector(
+    onTap: () => _onServiceTap(svc),
+    child: Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 8, offset: const Offset(0, 2))],
       ),
-    );
-  }
+      child: Column(
+        children: [
+          Expanded(
+            flex: 3,
+            child: ClipRRect(
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+              child: img.isNotEmpty
+                  ? Image.asset(img, width: double.infinity, fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => _iconBox(svc))
+                  : _iconBox(svc),
+            ),
+          ),
+          Expanded(
+            flex: 2,
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                child: Text(
+                  svc['name'] as String,
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.ink),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+Widget _iconBox(Map<String, dynamic> svc) {
+  return Container(
+    width: double.infinity,
+    color: Color(svc['color'] as int),
+    child: Center(
+      child: Text(svc['icon'] as String, style: const TextStyle(fontSize: 36)),
+    ),
+  );
+}
 
   Widget _buildBookings() {
     return Scaffold(

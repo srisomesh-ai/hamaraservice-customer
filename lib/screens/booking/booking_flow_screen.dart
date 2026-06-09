@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
+import 'package:geolocator/geolocator.dart';
 import '../../utils/theme.dart';
 import '../../services/firebase_service.dart';
-import 'booking_confirmed_screen.dart';
 import 'radar_screen.dart';
 
 class BookingFlowScreen extends StatefulWidget {
@@ -19,12 +19,13 @@ class BookingFlowScreen extends StatefulWidget {
 class _BookingFlowScreenState extends State<BookingFlowScreen> {
   int _step = 0;
   DateTime _selectedDate = DateTime.now().add(const Duration(days: 1));
-  TimeOfDay _selectedTime = const TimeOfDay(hour: 9, minute: 0);
-  final _addressCtrl    = TextEditingController();
-  final _landmarkCtrl   = TextEditingController();
-  final _nameCtrl       = TextEditingController();
-  final _phoneCtrl      = TextEditingController();
+  final _addressCtrl  = TextEditingController();
+  final _landmarkCtrl = TextEditingController();
+  final _nameCtrl     = TextEditingController();
+  final _phoneCtrl    = TextEditingController();
   bool _loading = false;
+  double? _customerLat;
+  double? _customerLng;
 
   final List<String> _timeSlots = [
     '07:00 AM', '08:00 AM', '09:00 AM', '10:00 AM',
@@ -34,26 +35,40 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
   String _selectedSlot = '09:00 AM';
 
   @override
-void initState() {
-  super.initState();
-  _loadProfileData();
-}
+  void initState() {
+    super.initState();
+    _loadProfileData();
+    _getLocation();
+  }
 
-Future<void> _loadProfileData() async {
-  final user = FirebaseAuth.instance.currentUser;
-  _nameCtrl.text  = user?.displayName ?? '';
-  _phoneCtrl.text = user?.phoneNumber ?? '';
-  try {
-    final snap = await FirebaseDatabase.instance
-        .ref('customers/${user?.uid}').get();
-    if (snap.exists) {
-      final data = Map<String, dynamic>.from(snap.value as Map);
-      _nameCtrl.text    = data['name']    ?? _nameCtrl.text;
-      _phoneCtrl.text   = data['phone']   ?? _phoneCtrl.text;
-      _addressCtrl.text = data['address'] ?? '';
-    }
-  } catch (e) {}
-}
+  Future<void> _getLocation() async {
+    try {
+      final permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) return;
+      final pos = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.low);
+      setState(() {
+        _customerLat = pos.latitude;
+        _customerLng = pos.longitude;
+      });
+    } catch (e) {}
+  }
+
+  Future<void> _loadProfileData() async {
+    final user = FirebaseAuth.instance.currentUser;
+    _nameCtrl.text  = user?.displayName ?? '';
+    _phoneCtrl.text = user?.phoneNumber ?? '';
+    try {
+      final snap = await FirebaseDatabase.instance.ref('customers/${user?.uid}').get();
+      if (snap.exists) {
+        final data = Map<String, dynamic>.from(snap.value as Map);
+        _nameCtrl.text    = data['name']    ?? _nameCtrl.text;
+        _phoneCtrl.text   = data['phone']   ?? _phoneCtrl.text;
+        _addressCtrl.text = data['address'] ?? '';
+      }
+    } catch (e) {}
+  }
 
   Future<void> _confirmBooking() async {
     if (_addressCtrl.text.trim().isEmpty) {
@@ -70,40 +85,51 @@ Future<void> _loadProfileData() async {
     try {
       final user = FirebaseAuth.instance.currentUser;
       final bookingId = await FirebaseService.createBooking({
-        'service':     widget.service['name'],
-        'svcId':       widget.service['id'],
-        'icon':        widget.service['icon'],
-        'price':       widget.basePrice,
-        'priceVal':    widget.basePrice,
-        'date':        '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2,'0')}-${_selectedDate.day.toString().padLeft(2,'0')}',
-        'time':        _selectedSlot,
-        'address':     _addressCtrl.text.trim(),
-        'landmark':    _landmarkCtrl.text.trim(),
-        'customer':    _nameCtrl.text.trim(),
-        'phone':       _phoneCtrl.text.trim(),
-        'customerId':  user?.uid ?? '',
+        'service':       widget.service['name'],
+        'svcId':         widget.service['id'],
+        'icon':          widget.service['icon'],
+        'price':         widget.basePrice,
+        'priceVal':      widget.basePrice,
+        'date':          '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2,'0')}-${_selectedDate.day.toString().padLeft(2,'0')}',
+        'time':          _selectedSlot,
+        'address':       _addressCtrl.text.trim(),
+        'landmark':      _landmarkCtrl.text.trim(),
+        'customer':      _nameCtrl.text.trim(),
+        'phone':         _phoneCtrl.text.trim(),
+        'customerId':    user?.uid ?? '',
         'customerEmail': user?.email ?? '',
-        'status':      'confirmed',
-        'summary': widget.summary.isNotEmpty ? widget.summary : ['${widget.service['name']} > Service booking'],
+        'status':        'searching',
+        'lat':           _customerLat ?? 0.0,
+        'lng':           _customerLng ?? 0.0,
+        'summary': widget.summary.isNotEmpty
+            ? widget.summary
+            : ['${widget.service['name']} > Service booking'],
       });
       if (mounted) {
-        Navigator.pushReplacement(context,
-          MaterialPageRoute(builder: (_) => RadarScreen(
+        Navigator.pushReplacement(context, MaterialPageRoute(
+          builder: (_) => RadarScreen(
             bookingId: bookingId,
             service: widget.service,
             date: _selectedDate,
             timeSlot: _selectedSlot,
             address: _addressCtrl.text.trim(),
             price: widget.basePrice,
+            lat: _customerLat,
+            lng: _customerLng,
           )));
       }
     } catch (e) {
       setState(() => _loading = false);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Booking failed. Please try again.'), backgroundColor: AppColors.red));
-      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Booking failed. Please try again.'), backgroundColor: AppColors.red));
     }
+  }
+
+  @override
+  void dispose() {
+    _addressCtrl.dispose(); _landmarkCtrl.dispose();
+    _nameCtrl.dispose(); _phoneCtrl.dispose();
+    super.dispose();
   }
 
   @override
@@ -144,7 +170,6 @@ Future<void> _loadProfileData() async {
                      _step == 1 ? _buildAddressStep() : _buildConfirmStep(),
             ),
           ),
-          // Bottom button
           Container(
             padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
             color: Colors.white,
@@ -165,11 +190,8 @@ Future<void> _loadProfileData() async {
                 Expanded(
                   child: ElevatedButton(
                     onPressed: _loading ? null : () {
-                      if (_step < 2) {
-                        setState(() => _step++);
-                      } else {
-                        _confirmBooking();
-                      }
+                      if (_step < 2) setState(() => _step++);
+                      else _confirmBooking();
                     },
                     style: ElevatedButton.styleFrom(
                       minimumSize: const Size(double.infinity, 52),
@@ -178,7 +200,7 @@ Future<void> _loadProfileData() async {
                     child: _loading
                         ? const SizedBox(width: 22, height: 22,
                             child: CircularProgressIndicator(strokeWidth: 2.5, valueColor: AlwaysStoppedAnimation(Colors.white)))
-                        : Text(_step < 2 ? 'Next →' : 'Confirm Booking ✓',
+                        : Text(_step < 2 ? 'Next →' : 'Confirm Booking',
                             style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
                   ),
                 ),
@@ -229,7 +251,6 @@ Future<void> _loadProfileData() async {
                   color: selected ? AppColors.teal : Colors.white,
                   borderRadius: BorderRadius.circular(10),
                   border: Border.all(color: selected ? AppColors.teal : AppColors.line),
-                  boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 4)],
                 ),
                 child: Text(slot,
                   style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600,
@@ -293,92 +314,105 @@ Future<void> _loadProfileData() async {
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
           ),
         ),
+        if (_customerLat != null) ...[
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: AppColors.greenSoft,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: AppColors.green.withOpacity(0.3)),
+            ),
+            child: Row(children: [
+              const Icon(Icons.location_on_rounded, color: AppColors.green, size: 16),
+              const SizedBox(width: 8),
+              const Text('Location detected for provider matching',
+                style: TextStyle(fontSize: 12, color: AppColors.green, fontWeight: FontWeight.w600)),
+            ]),
+          ),
+        ],
       ],
     );
   }
 
   Widget _buildConfirmStep() {
-  return Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      const Text('Booking Summary', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.ink)),
-      const SizedBox(height: 16),
-      _summaryCard(),
-      const SizedBox(height: 12),
-
-      // Summary chips
-      if (widget.summary.isNotEmpty) ...[
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Booking Summary', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.ink)),
+        const SizedBox(height: 16),
+        _summaryCard(),
+        const SizedBox(height: 12),
+        if (widget.summary.isNotEmpty) ...[
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: AppColors.tealSoft,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: AppColors.teal.withOpacity(0.2)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('SELECTED SERVICES', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800,
+                  color: AppColors.teal, letterSpacing: 0.5)),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8, runSpacing: 8,
+                  children: widget.summary.map((s) {
+                    final parts = s.split(' > ');
+                    return Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: AppColors.teal.withOpacity(0.3)),
+                      ),
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        const Icon(Icons.check_circle_rounded, color: AppColors.teal, size: 14),
+                        const SizedBox(width: 6),
+                        Text(parts.length > 1 ? parts.sublist(1).join(' > ') : s,
+                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.teal)),
+                      ]),
+                    );
+                  }).toList(),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+        _infoCard(Icons.calendar_today_rounded, 'Date & Time',
+          '${_selectedDate.day}/${_selectedDate.month}/${_selectedDate.year} at $_selectedSlot'),
+        const SizedBox(height: 10),
+        _infoCard(Icons.location_on_rounded, 'Address', _addressCtrl.text.trim()),
+        const SizedBox(height: 10),
+        _infoCard(Icons.person_rounded, 'Contact',
+          '${_nameCtrl.text.trim()} · ${_phoneCtrl.text.trim()}'),
+        const SizedBox(height: 20),
         Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(14),
+          padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             color: AppColors.tealSoft,
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: AppColors.teal.withOpacity(0.2)),
+            border: Border.all(color: AppColors.teal.withOpacity(0.3)),
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text('SELECTED SERVICES', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: AppColors.teal, letterSpacing: 0.5)),
-              const SizedBox(height: 10),
-              Wrap(
-                spacing: 8, runSpacing: 8,
-                children: widget.summary.map((s) {
-                  final parts = s.split(' > ');
-                  return Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: AppColors.teal.withOpacity(0.3)),
-                    ),
-                    child: Row(mainAxisSize: MainAxisSize.min, children: [
-                      const Icon(Icons.check_circle_rounded, color: AppColors.teal, size: 14),
-                      const SizedBox(width: 6),
-                      Text(
-                        parts.length > 1 ? parts.sublist(1).join(' › ') : s,
-                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.teal),
-                      ),
-                    ]),
-                  );
-                }).toList(),
-              ),
+              const Text('Total Amount', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.teal)),
+              Text('₹${widget.basePrice}',
+                style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: AppColors.teal)),
             ],
           ),
         ),
         const SizedBox(height: 12),
+        const Text('Payment will be collected after service completion.',
+          style: TextStyle(fontSize: 12, color: AppColors.muted)),
       ],
-
-      _infoCard(Icons.calendar_today_rounded, 'Date & Time',
-        '${_selectedDate.day}/${_selectedDate.month}/${_selectedDate.year} at $_selectedSlot'),
-      const SizedBox(height: 10),
-      _infoCard(Icons.location_on_rounded, 'Address', _addressCtrl.text.trim()),
-      const SizedBox(height: 10),
-      _infoCard(Icons.person_rounded, 'Contact',
-        '${_nameCtrl.text.trim()} · ${_phoneCtrl.text.trim()}'),
-      const SizedBox(height: 20),
-      Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: AppColors.tealSoft,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: AppColors.teal.withOpacity(0.3)),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            const Text('Total Amount', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.teal)),
-            Text('₹${widget.basePrice}',
-              style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: AppColors.teal)),
-          ],
-        ),
-      ),
-      const SizedBox(height: 12),
-      const Text('Payment will be collected after service completion.',
-        style: TextStyle(fontSize: 12, color: AppColors.muted)),
-    ],
-  );
-}
+    );
+  }
 
   Widget _label(String text) => Text(text,
     style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.ink2));
@@ -398,7 +432,8 @@ Future<void> _loadProfileData() async {
             color: Color(widget.service['color'] as int),
             borderRadius: BorderRadius.circular(12),
           ),
-          child: Center(child: Text(widget.service['icon'] as String, style: const TextStyle(fontSize: 28))),
+          child: Center(child: Text(widget.service['icon'] as String,
+            style: const TextStyle(fontSize: 28))),
         ),
         const SizedBox(width: 14),
         Expanded(child: Column(

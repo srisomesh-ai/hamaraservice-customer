@@ -27,7 +27,7 @@ dev_dependencies:
 flutter:
   uses-material-design: true
 
-  flutter_launcher_icons:
+flutter_launcher_icons:
   android: true
   ios: false
   image_path: "slogo-png.png"

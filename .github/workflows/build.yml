@@ -25,8 +25,8 @@ jobs:
         run: echo '${{ secrets.GOOGLE_SERVICES_JSON }}' > android/app/google-services.json
 
       - name: Create asset directories
-        run: mkdir -p assets/images assets/icons assets/animations assets/fonts
-
+        run: mkdir -p assets/icons assets/animations assets/fonts
+        
       - name: Create local.properties
         run: |
           FLUTTER_PATH=$(dirname $(which flutter))

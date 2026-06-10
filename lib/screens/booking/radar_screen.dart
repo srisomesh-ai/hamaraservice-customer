@@ -37,10 +37,11 @@ class _RadarScreenState extends State<RadarScreen>
   final List<int> _ranges = [1, 3, 5, 10, 15, 20];
   int _currentRangeIdx = 0;
   bool _radarActive = true;
+  bool _navigating = false;
   Timer? _pollTimer;
+  Timer? _rangeTimer;
   final List<Map<String, dynamic>> _logs = [];
   int _providersFound = 0;
-  int _rangeElapsed = 0;
 
   late AnimationController _sweepCtrl;
   late AnimationController _pulseCtrl;
@@ -68,6 +69,7 @@ class _RadarScreenState extends State<RadarScreen>
     _sweepCtrl.dispose();
     _pulseCtrl.dispose();
     _pollTimer?.cancel();
+    _rangeTimer?.cancel();
     super.dispose();
   }
 
@@ -78,6 +80,7 @@ class _RadarScreenState extends State<RadarScreen>
       if (_radarActive) {
         _radarActive = false;
         _pollTimer?.cancel();
+        _rangeTimer?.cancel();
         FirebaseDatabase.instance
             .ref('active_bookings/${widget.bookingId}')
             .update({
@@ -121,10 +124,13 @@ class _RadarScreenState extends State<RadarScreen>
       return;
     }
 
+    // Cancel existing timers
+    _pollTimer?.cancel();
+    _rangeTimer?.cancel();
+
     setState(() {
       _currentRangeIdx = idx;
       _providersFound = 0;
-      _rangeElapsed = 0;
     });
 
     final km = _ranges[idx];
@@ -135,37 +141,39 @@ class _RadarScreenState extends State<RadarScreen>
       _addLog('↔️', 'Expanding to $km km radius', type: 'warn');
     }
 
-    final db = FirebaseDatabase.instance;
-    await db.ref('active_bookings/${widget.bookingId}').update({
-      'range': km,
-      'status': 'searching',
-    });
+    // Update Firebase
+    try {
+      await FirebaseDatabase.instance
+          .ref('active_bookings/${widget.bookingId}')
+          .update({'range': km, 'status': 'searching'});
+    } catch (e) {}
 
+    // Count providers in range
     _countProviders(km);
 
-    _pollTimer?.cancel();
+    // Poll for acceptance every 3 seconds
     _pollTimer = Timer.periodic(const Duration(seconds: 3), (t) async {
-      if (!_radarActive || !mounted) {
+      if (!_radarActive || !mounted || _navigating) {
         t.cancel();
         return;
       }
-      _rangeElapsed += 3;
-
       try {
-        final snap = await db
+        final snap = await FirebaseDatabase.instance
             .ref('active_bookings/${widget.bookingId}/acceptedBy')
             .get();
         if (snap.exists && snap.value != null) {
           t.cancel();
+          _rangeTimer?.cancel();
           _providerAccepted();
-          return;
         }
       } catch (e) {}
+    });
 
-      if (_rangeElapsed >= 30) {
-        t.cancel();
-        _startRange(idx + 1);
-      }
+    // Move to next range after 30 seconds
+    _rangeTimer = Timer(const Duration(seconds: 30), () {
+      if (!_radarActive || !mounted || _navigating) return;
+      _pollTimer?.cancel();
+      _startRange(idx + 1);
     });
   }
 
@@ -185,7 +193,9 @@ class _RadarScreenState extends State<RadarScreen>
         final pLng = (p['lng'] as num?)?.toDouble();
         if (pLat == null || pLng == null) continue;
         if (widget.lat != null && widget.lng != null) {
-          if (_haversine(widget.lat!, widget.lng!, pLat, pLng) > km) continue;
+          if (_haversine(widget.lat!, widget.lng!, pLat, pLng) > km) {
+            continue;
+          }
         }
         final services = p['services'];
         if (services == null) continue;
@@ -193,15 +203,17 @@ class _RadarScreenState extends State<RadarScreen>
             ? services
             : (services as Map).values.toList();
         final hasService = svcList.any((s) {
-          if (s is Map)
+          if (s is Map) {
             return (s['name'] ?? '').toString().toLowerCase() == reqSvc;
+          }
           return false;
         });
         if (hasService) count++;
       }
       if (mounted) setState(() => _providersFound = count);
       if (count > 0) {
-        _addLog('👥', '$count provider${count == 1 ? '' : 's'} found within $km km',
+        _addLog('👥',
+            '$count provider${count == 1 ? '' : 's'} found within $km km',
             type: 'success');
       } else {
         _addLog('🔍', 'No providers online within $km km yet...');
@@ -210,7 +222,8 @@ class _RadarScreenState extends State<RadarScreen>
   }
 
   void _providerAccepted() async {
-    if (!mounted) return;
+    if (_navigating || !mounted) return;
+    _navigating = true;
     setState(() => _radarActive = false);
     _addLog('✅', 'Provider found! Confirmed!', type: 'success');
     await Future.delayed(const Duration(milliseconds: 800));
@@ -229,22 +242,26 @@ class _RadarScreenState extends State<RadarScreen>
   }
 
   void _bookingPending() async {
-    if (!mounted) return;
+    if (_navigating || !mounted) return;
+    _navigating = true;
     setState(() => _radarActive = false);
     _pollTimer?.cancel();
+    _rangeTimer?.cancel();
 
-    await FirebaseDatabase.instance
-        .ref('active_bookings/${widget.bookingId}')
-        .update({
-      'status': 'pending',
-      'pendingAt': DateTime.now().toIso8601String(),
-    });
-    await FirebaseDatabase.instance
-        .ref('bookings/${widget.bookingId}')
-        .update({
-      'status': 'pending',
-      'pendingAt': DateTime.now().toIso8601String(),
-    });
+    try {
+      await FirebaseDatabase.instance
+          .ref('active_bookings/${widget.bookingId}')
+          .update({
+        'status': 'pending',
+        'pendingAt': DateTime.now().toIso8601String(),
+      });
+      await FirebaseDatabase.instance
+          .ref('bookings/${widget.bookingId}')
+          .update({
+        'status': 'pending',
+        'pendingAt': DateTime.now().toIso8601String(),
+      });
+    } catch (e) {}
 
     _addLog('📋', 'Booking saved as pending!', type: 'warn');
 
@@ -266,9 +283,12 @@ class _RadarScreenState extends State<RadarScreen>
   void _cancelSearch() async {
     setState(() => _radarActive = false);
     _pollTimer?.cancel();
-    await FirebaseDatabase.instance
-        .ref('active_bookings/${widget.bookingId}/status')
-        .set('cancelled');
+    _rangeTimer?.cancel();
+    try {
+      await FirebaseDatabase.instance
+          .ref('active_bookings/${widget.bookingId}/status')
+          .set('cancelled');
+    } catch (e) {}
     if (mounted) Navigator.pop(context);
   }
 
@@ -293,7 +313,8 @@ class _RadarScreenState extends State<RadarScreen>
                     decoration: BoxDecoration(
                         color: Colors.white.withOpacity(0.1),
                         shape: BoxShape.circle),
-                    child: const Icon(Icons.close, color: Colors.white, size: 18),
+                    child:
+                        const Icon(Icons.close, color: Colors.white, size: 18),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -318,17 +339,18 @@ class _RadarScreenState extends State<RadarScreen>
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20),
               child: Column(children: [
-                Row(mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                  Text('1 km',
-                      style: TextStyle(
-                          fontSize: 10,
-                          color: Colors.white.withOpacity(0.4))),
-                  Text('20 km',
-                      style: TextStyle(
-                          fontSize: 10,
-                          color: Colors.white.withOpacity(0.4))),
-                ]),
+                      Text('1 km',
+                          style: TextStyle(
+                              fontSize: 10,
+                              color: Colors.white.withOpacity(0.4))),
+                      Text('20 km',
+                          style: TextStyle(
+                              fontSize: 10,
+                              color: Colors.white.withOpacity(0.4))),
+                    ]),
                 const SizedBox(height: 4),
                 ClipRRect(
                   borderRadius: BorderRadius.circular(4),
@@ -377,8 +399,8 @@ class _RadarScreenState extends State<RadarScreen>
                 decoration: BoxDecoration(
                   color: AppColors.green.withOpacity(0.15),
                   borderRadius: BorderRadius.circular(20),
-                  border: Border.all(
-                      color: AppColors.green.withOpacity(0.3)),
+                  border:
+                      Border.all(color: AppColors.green.withOpacity(0.3)),
                 ),
                 child: Text(
                     '$_providersFound provider${_providersFound == 1 ? '' : 's'} found — waiting for acceptance',

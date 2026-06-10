@@ -170,7 +170,7 @@ class _RadarScreenState extends State<RadarScreen>
     });
 
     // Move to next range after 30 seconds
-    _rangeTimer = Timer(const Duration(seconds: 30), () {
+    _rangeTimer = Timer(const Duration(seconds: 20), () {
       if (!_radarActive || !mounted || _navigating) return;
       _pollTimer?.cancel();
       _startRange(idx + 1);

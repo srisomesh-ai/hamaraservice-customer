@@ -118,6 +118,44 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
               const SizedBox(height: 8),
               _row(Icons.currency_rupee_rounded, '₹${b['price'] ?? b['priceVal'] ?? 0}'),
               if ((b['summary'] as List?)?.isNotEmpty == true) ...[
+                if (['confirmed','searching','pending'].contains(status)) ...[
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton(
+                    onPressed: () async {
+                      final confirm = await showDialog<bool>(
+                        context: context,
+                        builder: (_) => AlertDialog(
+                          title: const Text('Cancel Booking?'),
+                          content: const Text('Are you sure you want to cancel this booking?'),
+                          actions: [
+                            TextButton(onPressed: () => Navigator.pop(context, false),
+                              child: const Text('No')),
+                            TextButton(onPressed: () => Navigator.pop(context, true),
+                              child: const Text('Yes, Cancel',
+                                style: TextStyle(color: AppColors.red))),
+                          ],
+                        ),
+                      );
+                      if (confirm == true) {
+                        await FirebaseDatabase.instance
+                            .ref('bookings/${b['id']}').update({'status': 'cancelled'});
+                        await FirebaseDatabase.instance
+                            .ref('active_bookings/${b['id']}').update({'status': 'cancelled'});
+                        setState(() => _loadBookings());
+                      }
+                    },
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: AppColors.red),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      minimumSize: const Size(double.infinity, 38),
+                    ),
+                    child: const Text('Cancel Booking',
+                      style: TextStyle(color: AppColors.red, fontWeight: FontWeight.w700)),
+                  ),
+                ),
+              ],
                 const SizedBox(height: 10),
                 const Divider(color: AppColors.line),
                 const SizedBox(height: 8),

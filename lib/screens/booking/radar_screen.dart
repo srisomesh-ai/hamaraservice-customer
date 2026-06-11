@@ -148,6 +148,11 @@ class _RadarScreenState extends State<RadarScreen>
           .update({'range': km, 'status': 'searching'});
     } catch (e) {}
 
+    // Trigger FCM notification immediately
+try {
+  await http.get(Uri.parse('https://hamaraservice.com/fcm-notify.php'));
+} catch (e) {}
+
     // Count providers in range
     _countProviders(km);
 

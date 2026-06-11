@@ -79,9 +79,21 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
           _otpService = service;
         });
       } else if (status == 'verified') {
-        setState(() => _showOtpPopup = false);
-        _loadBookings();
-      }
+  setState(() => _showOtpPopup = false);
+  // Find the booking and go to payment
+  final booking = _bookings.firstWhere(
+    (b) => b['id'] == bookingId,
+    orElse: () => <String, dynamic>{},
+  );
+  if (booking.isNotEmpty && mounted) {
+    Navigator.push(context, MaterialPageRoute(
+      builder: (_) => PaymentScreen(
+        bookingId: bookingId,
+        booking: booking,
+      )));
+  }
+  _loadBookings();
+}
     });
   }
 

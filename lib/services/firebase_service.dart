@@ -51,10 +51,13 @@ class FirebaseService {
 
   // ── Bookings ──────────────────────────────────────────────────────────────
   static Future<String> createBooking(Map<String, dynamic> data) async {
-    final ref = _db.ref('bookings').push();
-    await ref.set({...data, 'id': ref.key, 'createdAt': DateTime.now().toIso8601String()});
-    return ref.key!;
-  }
+  final ref = _db.ref('bookings').push();
+  final bookingData = {...data, 'id': ref.key, 'createdAt': DateTime.now().toIso8601String()};
+  // Write to both bookings AND active_bookings — same as web
+  await ref.set(bookingData);
+  await _db.ref('active_bookings/${ref.key}').set(bookingData);
+  return ref.key!;
+}
 
   static Future<List<Map<String, dynamic>>> getUserBookings(String uid) async {
     final snap = await get('bookings');

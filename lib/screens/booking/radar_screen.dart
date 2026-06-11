@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:firebase_database/firebase_database.dart';
+import 'package:http/http.dart' as http;
 import '../../utils/theme.dart';
 import 'booking_confirmed_screen.dart';
 import 'booking_pending_screen.dart';

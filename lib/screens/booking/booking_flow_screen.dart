@@ -42,18 +42,30 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
   }
 
   Future<void> _getLocation() async {
+  try {
+    final permission = await Geolocator.requestPermission();
+    if (permission == LocationPermission.denied ||
+        permission == LocationPermission.deniedForever) return;
+    final pos = await Geolocator.getCurrentPosition(
+      desiredAccuracy: LocationAccuracy.high);
+    setState(() {
+      _customerLat = pos.latitude;
+      _customerLng = pos.longitude;
+    });
+    // Auto-fill address from GPS
     try {
-      final permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied ||
-          permission == LocationPermission.deniedForever) return;
-      final pos = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.low);
-      setState(() {
-        _customerLat = pos.latitude;
-        _customerLng = pos.longitude;
-      });
+      final placemarks = await placemarkFromCoordinates(pos.latitude, pos.longitude);
+      if (placemarks.isNotEmpty && _addressCtrl.text.isEmpty) {
+        final p = placemarks.first;
+        final addr = [
+          p.name, p.street, p.subLocality,
+          p.locality, p.administrativeArea
+        ].where((s) => s != null && s.isNotEmpty).join(', ');
+        setState(() => _addressCtrl.text = addr);
+      }
     } catch (e) {}
-  }
+  } catch (e) {}
+}
 
   Future<void> _loadProfileData() async {
     final user = FirebaseAuth.instance.currentUser;

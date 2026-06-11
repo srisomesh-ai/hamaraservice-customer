@@ -286,6 +286,35 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
         const SizedBox(height: 16),
         _label('Full Address *'),
         const SizedBox(height: 6),
+        // GPS detect button
+GestureDetector(
+  onTap: _getLocation,
+  child: Container(
+    padding: const EdgeInsets.all(12),
+    margin: const EdgeInsets.only(bottom: 12),
+    decoration: BoxDecoration(
+      color: _customerLat != null ? AppColors.greenSoft : AppColors.tealSoft,
+      borderRadius: BorderRadius.circular(10),
+      border: Border.all(
+        color: _customerLat != null ? AppColors.green : AppColors.teal),
+    ),
+    child: Row(children: [
+      Icon(
+        _customerLat != null ? Icons.location_on_rounded : Icons.my_location_rounded,
+        color: _customerLat != null ? AppColors.green : AppColors.teal,
+        size: 20),
+      const SizedBox(width: 10),
+      Expanded(child: Text(
+        _customerLat != null
+            ? 'Location detected — tap to refresh'
+            : 'Tap to auto-fill address from GPS',
+        style: TextStyle(
+          fontSize: 13, fontWeight: FontWeight.w600,
+          color: _customerLat != null ? AppColors.green : AppColors.teal),
+      )),
+    ]),
+  ),
+),
         TextField(
           controller: _addressCtrl,
           maxLines: 3,

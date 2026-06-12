@@ -152,9 +152,9 @@ class _RadarScreenState extends State<RadarScreen>
     });
     final km = _ranges[idx];
     if (idx == 0) {
-      _addLog('Searching for providers within $km km...', '', type: 'info');
+      _addLog('📡', 'Searching for providers within $km km...', type: 'info');
     } else {
-      _addLog('Expanding to $km km radius', '', type: 'warn');
+      _addLog('↔️', 'Expanding to $km km radius...', type: 'warn');
     }
     try {
       await FirebaseDatabase.instance
@@ -226,9 +226,9 @@ class _RadarScreenState extends State<RadarScreen>
       }
       if (mounted) setState(() => _providersFound = count);
       if (count > 0) {
-        _addLog('$count provider${count == 1 ? '' : 's'} found within $km km', '', type: 'success');
+        _addLog('✅', '$count provider${count == 1 ? '' : 's'} found within $km km', type: 'success');
       } else {
-        _addLog('No providers online within $km km...', '', type: 'info');
+        _addLog('📡', 'No providers online within $km km', type: 'info');
       }
     } catch (e) {}
   }
@@ -238,7 +238,7 @@ class _RadarScreenState extends State<RadarScreen>
     _navigating = true;
     _audioPlayer.stop();
     setState(() => _radarActive = false);
-    _addLog('Provider found! Confirmed!', '', type: 'success');
+    _addLog('✅', 'Provider found and confirmed!', type: 'success');
     await Future.delayed(const Duration(milliseconds: 800));
     if (!mounted) return;
     Navigator.pushReplacement(
@@ -274,7 +274,7 @@ class _RadarScreenState extends State<RadarScreen>
         'pendingAt': DateTime.now().toIso8601String(),
       });
     } catch (e) {}
-    _addLog('Booking saved as pending!', '', type: 'warn');
+    _addLog('⏳', 'Booking saved as pending — providers will see it', type: 'warn');
     await Future.delayed(const Duration(seconds: 1));
     if (!mounted) return;
     Navigator.pushReplacement(

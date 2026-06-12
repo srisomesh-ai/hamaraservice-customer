@@ -95,9 +95,8 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
           ].where((s) => s != null && s.isNotEmpty).join(', ');
           setState(() {
             _detectedAddress = addr;
-            if (_addressCtrl.text.isEmpty) {
-              _addressCtrl.text = addr;
-            }
+            // Always use GPS address - overrides any saved address
+          _addressCtrl.text = addr;
           });
         }
       } catch (e) {}
@@ -117,10 +116,8 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
         final data = Map<String, dynamic>.from(snap.value as Map);
         _nameCtrl.text = data['name'] ?? _nameCtrl.text;
         _phoneCtrl.text = data['phone'] ?? _phoneCtrl.text;
-        // Only use saved address if GPS not available
-        if (_customerLat == null && (data['address'] ?? '').isNotEmpty) {
-          _addressCtrl.text = data['address'];
-        }
+        // Never auto-fill address from profile - GPS address takes priority
+        // Address will be filled by GPS detection only
       }
     } catch (e) {}
   }

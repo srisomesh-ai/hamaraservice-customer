@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:firebase_database/firebase_database.dart';
-import 'package:http/http.dart' as http;
+import 'package:audioplayers/audioplayers.dart';
 import '../../utils/theme.dart';
 import 'booking_confirmed_screen.dart';
 import 'booking_pending_screen.dart';
@@ -43,6 +43,7 @@ class _RadarScreenState extends State<RadarScreen>
   Timer? _rangeTimer;
   final List<Map<String, dynamic>> _logs = [];
   int _providersFound = 0;
+  final _audioPlayer = AudioPlayer();
 
   late AnimationController _sweepCtrl;
   late AnimationController _pulseCtrl;
@@ -59,9 +60,20 @@ class _RadarScreenState extends State<RadarScreen>
     _pulseCtrl = AnimationController(
         vsync: this, duration: const Duration(milliseconds: 1500))
       ..repeat(reverse: true);
-    _sweepAnim = Tween(begin: 0.0, end: 2 * pi).animate(_sweepCtrl);
+    _sweepAnim =
+        Tween(begin: 0.0, end: 2 * pi).animate(_sweepCtrl);
     _pulseAnim = Tween(begin: 0.8, end: 1.0).animate(_pulseCtrl);
+    _startRadarSound();
     _startRange(0);
+  }
+
+  Future<void> _startRadarSound() async {
+    try {
+      await _audioPlayer.setReleaseMode(ReleaseMode.loop);
+      await _audioPlayer.play(AssetSource('sounds/radar.mp3'));
+    } catch (e) {
+      // No sound file - silent
+    }
   }
 
   @override
@@ -71,6 +83,7 @@ class _RadarScreenState extends State<RadarScreen>
     _pulseCtrl.dispose();
     _pollTimer?.cancel();
     _rangeTimer?.cancel();
+    _audioPlayer.dispose();
     super.dispose();
   }
 
@@ -82,6 +95,8 @@ class _RadarScreenState extends State<RadarScreen>
         _radarActive = false;
         _pollTimer?.cancel();
         _rangeTimer?.cancel();
+        _audioPlayer.stop();
+        // Make booking pending when app goes to background
         FirebaseDatabase.instance
             .ref('active_bookings/${widget.bookingId}')
             .update({
@@ -98,7 +113,8 @@ class _RadarScreenState extends State<RadarScreen>
     }
   }
 
-  double _haversine(double lat1, double lng1, double lat2, double lng2) {
+  double _haversine(
+      double lat1, double lng1, double lat2, double lng2) {
     const r = 6371.0;
     final dLat = (lat2 - lat1) * pi / 180;
     final dLng = (lng2 - lng1) * pi / 180;
@@ -113,7 +129,11 @@ class _RadarScreenState extends State<RadarScreen>
   void _addLog(String emoji, String message, {String type = ''}) {
     if (!mounted) return;
     setState(() {
-      _logs.insert(0, {'emoji': emoji, 'message': message, 'type': type});
+      _logs.insert(0, {
+        'emoji': emoji,
+        'message': message,
+        'type': type
+      });
       if (_logs.length > 10) _logs.removeLast();
     });
   }
@@ -124,41 +144,26 @@ class _RadarScreenState extends State<RadarScreen>
       _bookingPending();
       return;
     }
-
-    // Cancel existing timers
     _pollTimer?.cancel();
     _rangeTimer?.cancel();
-
     setState(() {
       _currentRangeIdx = idx;
       _providersFound = 0;
     });
-
     final km = _ranges[idx];
-
     if (idx == 0) {
-      _addLog('📡', 'Searching for providers within $km km...');
+      _addLog('Searching for providers within $km km...', '', type: 'info');
     } else {
-      _addLog('↔️', 'Expanding to $km km radius', type: 'warn');
+      _addLog('Expanding to $km km radius', '', type: 'warn');
     }
-
-    // Update Firebase
     try {
       await FirebaseDatabase.instance
           .ref('active_bookings/${widget.bookingId}')
           .update({'range': km, 'status': 'searching'});
     } catch (e) {}
-
-    // Trigger FCM notification immediately
-try {
-  await http.get(Uri.parse('https://hamaraservice.com/fcm-notify.php'));
-} catch (e) {}
-
-    // Count providers in range
     _countProviders(km);
-
-    // Poll for acceptance every 3 seconds
-    _pollTimer = Timer.periodic(const Duration(seconds: 3), (t) async {
+    _pollTimer =
+        Timer.periodic(const Duration(seconds: 3), (t) async {
       if (!_radarActive || !mounted || _navigating) {
         t.cancel();
         return;
@@ -174,8 +179,6 @@ try {
         }
       } catch (e) {}
     });
-
-    // Move to next range after 30 seconds
     _rangeTimer = Timer(const Duration(seconds: 20), () {
       if (!_radarActive || !mounted || _navigating) return;
       _pollTimer?.cancel();
@@ -188,8 +191,10 @@ try {
       final snap =
           await FirebaseDatabase.instance.ref('providers').get();
       if (!snap.exists) return;
-      final all = Map<String, dynamic>.from(snap.value as Map);
-      final reqSvc = (widget.service['name'] as String).toLowerCase();
+      final all =
+          Map<String, dynamic>.from(snap.value as Map);
+      final reqSvc =
+          (widget.service['name'] as String).toLowerCase();
       int count = 0;
       for (final v in all.values) {
         final p = Map<String, dynamic>.from(v as Map);
@@ -199,9 +204,9 @@ try {
         final pLng = (p['lng'] as num?)?.toDouble();
         if (pLat == null || pLng == null) continue;
         if (widget.lat != null && widget.lng != null) {
-          if (_haversine(widget.lat!, widget.lng!, pLat, pLng) > km) {
-            continue;
-          }
+          if (_haversine(
+                  widget.lat!, widget.lng!, pLat, pLng) >
+              km) continue;
         }
         final services = p['services'];
         if (services == null) continue;
@@ -210,7 +215,10 @@ try {
             : (services as Map).values.toList();
         final hasService = svcList.any((s) {
           if (s is Map) {
-            return (s['name'] ?? '').toString().toLowerCase() == reqSvc;
+            return (s['name'] ?? '')
+                    .toString()
+                    .toLowerCase() ==
+                reqSvc;
           }
           return false;
         });
@@ -218,11 +226,9 @@ try {
       }
       if (mounted) setState(() => _providersFound = count);
       if (count > 0) {
-        _addLog('👥',
-            '$count provider${count == 1 ? '' : 's'} found within $km km',
-            type: 'success');
+        _addLog('$count provider${count == 1 ? '' : 's'} found within $km km', '', type: 'success');
       } else {
-        _addLog('🔍', 'No providers online within $km km yet...');
+        _addLog('No providers online within $km km...', '', type: 'info');
       }
     } catch (e) {}
   }
@@ -230,30 +236,30 @@ try {
   void _providerAccepted() async {
     if (_navigating || !mounted) return;
     _navigating = true;
+    _audioPlayer.stop();
     setState(() => _radarActive = false);
-    _addLog('✅', 'Provider found! Confirmed!', type: 'success');
+    _addLog('Provider found! Confirmed!', '', type: 'success');
     await Future.delayed(const Duration(milliseconds: 800));
     if (!mounted) return;
     Navigator.pushReplacement(
         context,
         MaterialPageRoute(
             builder: (_) => BookingConfirmedScreen(
-                  bookingId: widget.bookingId,
-                  service: widget.service,
-                  date: widget.date,
-                  timeSlot: widget.timeSlot,
-                  address: widget.address,
-                  price: widget.price,
-                )));
+                bookingId: widget.bookingId,
+                service: widget.service,
+                date: widget.date,
+                timeSlot: widget.timeSlot,
+                address: widget.address,
+                price: widget.price)));
   }
 
   void _bookingPending() async {
     if (_navigating || !mounted) return;
     _navigating = true;
+    _audioPlayer.stop();
     setState(() => _radarActive = false);
     _pollTimer?.cancel();
     _rangeTimer?.cancel();
-
     try {
       await FirebaseDatabase.instance
           .ref('active_bookings/${widget.bookingId}')
@@ -268,32 +274,34 @@ try {
         'pendingAt': DateTime.now().toIso8601String(),
       });
     } catch (e) {}
-
-    _addLog('📋', 'Booking saved as pending!', type: 'warn');
-
+    _addLog('Booking saved as pending!', '', type: 'warn');
     await Future.delayed(const Duration(seconds: 1));
     if (!mounted) return;
     Navigator.pushReplacement(
         context,
         MaterialPageRoute(
             builder: (_) => BookingPendingScreen(
-                  bookingId: widget.bookingId,
-                  service: widget.service,
-                  date: widget.date,
-                  timeSlot: widget.timeSlot,
-                  address: widget.address,
-                  price: widget.price,
-                )));
+                bookingId: widget.bookingId,
+                service: widget.service,
+                date: widget.date,
+                timeSlot: widget.timeSlot,
+                address: widget.address,
+                price: widget.price)));
   }
 
   void _cancelSearch() async {
+    _audioPlayer.stop();
     setState(() => _radarActive = false);
     _pollTimer?.cancel();
     _rangeTimer?.cancel();
+    // Delete from BOTH collections — cancelled search should not appear in bookings
     try {
       await FirebaseDatabase.instance
-          .ref('active_bookings/${widget.bookingId}/status')
-          .set('cancelled');
+          .ref('active_bookings/${widget.bookingId}')
+          .remove();
+      await FirebaseDatabase.instance
+          .ref('bookings/${widget.bookingId}')
+          .remove();
     } catch (e) {}
     if (mounted) Navigator.pop(context);
   }
@@ -302,182 +310,180 @@ try {
   Widget build(BuildContext context) {
     final km = _ranges[_currentRangeIdx];
     final progress = _currentRangeIdx / (_ranges.length - 1);
-
     return Scaffold(
       backgroundColor: const Color(0xFF080C14),
       body: SafeArea(
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(children: [
-                GestureDetector(
-                  onTap: _cancelSearch,
-                  child: Container(
-                    width: 36,
-                    height: 36,
-                    decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.1),
-                        shape: BoxShape.circle),
-                    child:
-                        const Icon(Icons.close, color: Colors.white, size: 18),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                    child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                      const Text('Searching for Providers',
-                          style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w700,
-                              color: Colors.white)),
-                      Text(
-                          _radarActive ? 'Range: $km km' : 'Search complete',
-                          style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.white.withOpacity(0.5))),
-                    ])),
-              ]),
-            ),
-
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Column(children: [
-                Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text('1 km',
-                          style: TextStyle(
-                              fontSize: 10,
-                              color: Colors.white.withOpacity(0.4))),
-                      Text('20 km',
-                          style: TextStyle(
-                              fontSize: 10,
-                              color: Colors.white.withOpacity(0.4))),
-                    ]),
-                const SizedBox(height: 4),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
-                  child: LinearProgressIndicator(
-                    value: progress,
-                    backgroundColor: Colors.white.withOpacity(0.1),
-                    valueColor: const AlwaysStoppedAnimation(
-                        Color(0xFF00FF88)),
-                    minHeight: 6,
-                  ),
-                ),
-              ]),
-            ),
-
-            const SizedBox(height: 8),
-
-            SizedBox(
-              width: 220,
-              height: 220,
-              child: AnimatedBuilder(
-                animation: _sweepCtrl,
-                builder: (_, __) => CustomPaint(
-                  painter:
-                      _RadarPainter(_sweepAnim.value, _pulseAnim.value),
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 8),
-
-            Text('$km km',
-                style: const TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.w800,
-                    color: Colors.white)),
-            Text('Searching within $km km of your location',
-                style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.white.withOpacity(0.45))),
-
-            if (_providersFound > 0) ...[
-              const SizedBox(height: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 14, vertical: 6),
-                decoration: BoxDecoration(
-                  color: AppColors.green.withOpacity(0.15),
-                  borderRadius: BorderRadius.circular(20),
-                  border:
-                      Border.all(color: AppColors.green.withOpacity(0.3)),
-                ),
-                child: Text(
-                    '$_providersFound provider${_providersFound == 1 ? '' : 's'} found — waiting for acceptance',
-                    style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.green)),
-              ),
-            ],
-
-            const SizedBox(height: 16),
-
-            Expanded(
-              child: ListView.builder(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                itemCount: _logs.length,
-                itemBuilder: (_, i) {
-                  final log = _logs[i];
-                  final type = log['type'] as String;
-                  final color = type == 'success'
-                      ? AppColors.green
-                      : type == 'warn'
-                          ? AppColors.yellow
-                          : Colors.white.withOpacity(0.6);
-                  return Container(
-                    margin: const EdgeInsets.only(bottom: 8),
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.06),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(
-                          color: Colors.white.withOpacity(0.1)),
-                    ),
-                    child: Row(children: [
-                      Text(log['emoji'] as String,
-                          style: const TextStyle(fontSize: 16)),
-                      const SizedBox(width: 10),
-                      Expanded(
-                          child: Text(log['message'] as String,
-                              style: TextStyle(
-                                  fontSize: 13,
-                                  color: color,
-                                  fontWeight: FontWeight.w500))),
-                    ]),
-                  );
-                },
-              ),
-            ),
-
-            Padding(
-              padding: const EdgeInsets.all(20),
-              child: GestureDetector(
+        child: Column(children: [
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(children: [
+              GestureDetector(
                 onTap: _cancelSearch,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 32, vertical: 12),
+                  width: 36,
+                  height: 36,
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.08),
-                    borderRadius: BorderRadius.circular(100),
-                    border: Border.all(
-                        color: Colors.white.withOpacity(0.18)),
-                  ),
-                  child: Text('Cancel Search',
-                      style: TextStyle(
-                          color: Colors.white.withOpacity(0.65),
-                          fontWeight: FontWeight.w600)),
+                      color: Colors.white.withOpacity(0.1),
+                      shape: BoxShape.circle),
+                  child: const Icon(Icons.close,
+                      color: Colors.white, size: 18),
                 ),
               ),
+              const SizedBox(width: 12),
+              Expanded(
+                  child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                const Text('Searching for Providers',
+                    style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white)),
+                Text(
+                    _radarActive
+                        ? 'Range: $km km'
+                        : 'Search complete',
+                    style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.white
+                            .withOpacity(0.5))),
+              ])),
+            ]),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Column(children: [
+              Row(
+                  mainAxisAlignment:
+                      MainAxisAlignment.spaceBetween,
+                  children: [
+                Text('1 km',
+                    style: TextStyle(
+                        fontSize: 10,
+                        color: Colors.white.withOpacity(0.4))),
+                Text('20 km',
+                    style: TextStyle(
+                        fontSize: 10,
+                        color: Colors.white.withOpacity(0.4))),
+              ]),
+              const SizedBox(height: 4),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: LinearProgressIndicator(
+                  value: progress,
+                  backgroundColor:
+                      Colors.white.withOpacity(0.1),
+                  valueColor: const AlwaysStoppedAnimation(
+                      Color(0xFF00FF88)),
+                  minHeight: 6,
+                ),
+              ),
+            ]),
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: 220,
+            height: 220,
+            child: AnimatedBuilder(
+              animation: _sweepCtrl,
+              builder: (_, __) => CustomPaint(
+                painter: _RadarPainter(
+                    _sweepAnim.value, _pulseAnim.value),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text('$km km',
+              style: const TextStyle(
+                  fontSize: 28,
+                  fontWeight: FontWeight.w800,
+                  color: Colors.white)),
+          Text('Searching within $km km of your location',
+              style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.white.withOpacity(0.45))),
+          if (_providersFound > 0) ...[
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 14, vertical: 6),
+              decoration: BoxDecoration(
+                color: AppColors.green.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                    color: AppColors.green.withOpacity(0.3)),
+              ),
+              child: Text(
+                  '$_providersFound provider${_providersFound == 1 ? '' : 's'} found — waiting for acceptance',
+                  style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.green)),
             ),
           ],
-        ),
+          const SizedBox(height: 16),
+          Expanded(
+            child: ListView.builder(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              itemCount: _logs.length,
+              itemBuilder: (_, i) {
+                final log = _logs[i];
+                final type = log['type'] as String;
+                final color = type == 'success'
+                    ? AppColors.green
+                    : type == 'warn'
+                        ? AppColors.yellow
+                        : Colors.white.withOpacity(0.6);
+                final emoji = type == 'success' ? '✅' : type == 'warn' ? '↔️' : '📡';
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.06),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                        color:
+                            Colors.white.withOpacity(0.1)),
+                  ),
+                  child: Row(children: [
+                    Text(emoji,
+                        style:
+                            const TextStyle(fontSize: 16)),
+                    const SizedBox(width: 10),
+                    Expanded(
+                        child: Text(
+                            log['message'] as String,
+                            style: TextStyle(
+                                fontSize: 13,
+                                color: color,
+                                fontWeight:
+                                    FontWeight.w500))),
+                  ]),
+                );
+              },
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(20),
+            child: GestureDetector(
+              onTap: _cancelSearch,
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 32, vertical: 12),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(100),
+                  border: Border.all(
+                      color: Colors.white.withOpacity(0.18)),
+                ),
+                child: Text('Cancel Search',
+                    style: TextStyle(
+                        color: Colors.white.withOpacity(0.65),
+                        fontWeight: FontWeight.w600)),
+              ),
+            ),
+          ),
+        ]),
       ),
     );
   }
@@ -493,7 +499,6 @@ class _RadarPainter extends CustomPainter {
     final cx = size.width / 2;
     final cy = size.height / 2;
     final maxR = size.width / 2;
-
     for (int i = 1; i <= 5; i++) {
       canvas.drawCircle(
           Offset(cx, cy),
@@ -503,13 +508,13 @@ class _RadarPainter extends CustomPainter {
             ..style = PaintingStyle.stroke
             ..strokeWidth = 1);
     }
-
     final linePaint = Paint()
       ..color = const Color(0xFF00FF88).withOpacity(0.07)
       ..strokeWidth = 1;
-    canvas.drawLine(Offset(cx, 0), Offset(cx, size.height), linePaint);
-    canvas.drawLine(Offset(0, cy), Offset(size.width, cy), linePaint);
-
+    canvas.drawLine(
+        Offset(cx, 0), Offset(cx, size.height), linePaint);
+    canvas.drawLine(
+        Offset(0, cy), Offset(size.width, cy), linePaint);
     canvas.drawCircle(
         Offset(cx, cy),
         maxR,
@@ -521,10 +526,9 @@ class _RadarPainter extends CustomPainter {
               Colors.transparent,
               const Color(0xFF00FF88).withOpacity(0.15)
             ],
-          ).createShader(
-              Rect.fromCircle(center: Offset(cx, cy), radius: maxR))
+          ).createShader(Rect.fromCircle(
+              center: Offset(cx, cy), radius: maxR))
           ..style = PaintingStyle.fill);
-
     canvas.drawLine(
         Offset(cx, cy),
         Offset(cx + maxR * cos(sweep - pi / 2),
@@ -532,7 +536,6 @@ class _RadarPainter extends CustomPainter {
         Paint()
           ..color = const Color(0xFF00FF88).withOpacity(0.6)
           ..strokeWidth = 2);
-
     canvas.drawCircle(
         Offset(cx, cy), 6, Paint()..color = AppColors.teal);
     canvas.drawCircle(
@@ -545,5 +548,6 @@ class _RadarPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_RadarPainter old) => old.sweep != sweep;
+  bool shouldRepaint(_RadarPainter old) =>
+      old.sweep != sweep;
 }

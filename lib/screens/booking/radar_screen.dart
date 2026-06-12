@@ -294,8 +294,14 @@ class _RadarScreenState extends State<RadarScreen>
     setState(() => _radarActive = false);
     _pollTimer?.cancel();
     _rangeTimer?.cancel();
-    // Delete from BOTH collections — cancelled search should not appear in bookings
     try {
+      // Step 1: Set status to cancelled FIRST so provider popup dismisses immediately
+      await FirebaseDatabase.instance
+          .ref('active_bookings/${widget.bookingId}')
+          .update({'status': 'cancelled', 'cancelledBy': 'customer_search'});
+      // Step 2: Short delay so provider listener fires
+      await Future.delayed(const Duration(milliseconds: 1500));
+      // Step 3: Now delete from both collections so it doesn't appear in bookings list
       await FirebaseDatabase.instance
           .ref('active_bookings/${widget.bookingId}')
           .remove();

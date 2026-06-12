@@ -334,36 +334,34 @@ class _MyBookingsScreenState extends State<MyBookingsScreen>
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.bg,
-      appBar: AppBar(
-        title: const Text('My Bookings'),
-        backgroundColor: AppColors.teal,
-        automaticallyImplyLeading: false,
-        bottom: TabBar(
+    return Column(children: [
+      // Tab bar only - no AppBar (parent dashboard provides it)
+      Container(
+        color: AppColors.teal,
+        child: TabBar(
           controller: _tabController,
           indicatorColor: AppColors.brand,
           labelColor: Colors.white,
           unselectedLabelColor: Colors.white70,
           tabs: [
-            Tab(
-                text:
-                    'Active${_active.isNotEmpty ? ' (${_active.length})' : ''}'),
+            Tab(text: 'Active${_active.isNotEmpty ? " (${_active.length})" : ""}'),
             const Tab(text: 'History'),
           ],
         ),
       ),
-      body: Stack(children: [
-        TabBarView(
-          controller: _tabController,
-          children: [
-            _buildActiveTab(),
-            _buildHistoryTab(),
-          ],
-        ),
-        if (_showOtpPopup) _buildOtpPopup(),
-      ]),
-    );
+      Expanded(
+        child: Stack(children: [
+          TabBarView(
+            controller: _tabController,
+            children: [
+              _buildActiveTab(),
+              _buildHistoryTab(),
+            ],
+          ),
+          if (_showOtpPopup) _buildOtpPopup(),
+        ]),
+      ),
+    ]);
   }
 
   Widget _buildActiveTab() {

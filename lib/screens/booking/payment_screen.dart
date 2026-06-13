@@ -55,6 +55,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
     setState(() => _loading = true);
     try {
       final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+      final providerId = widget.booking['providerId'] ?? '';
       await FirebaseDatabase.instance.ref('bookings/${widget.bookingId}').update({
         'status': 'completed', 'paymentMethod': 'razorpay', 'paymentStatus': 'paid',
         'txnId': r.paymentId ?? '', 'razorpayOrderId': r.orderId ?? '',
@@ -65,6 +66,20 @@ class _PaymentScreenState extends State<PaymentScreen> {
           {'status': 'completed', 'paymentStatus': 'paid'});
       if (_pendingPenalty > 0 && uid.isNotEmpty) {
         await FirebaseDatabase.instance.ref('customers/$uid/pendingPenalty').set(0);
+      }
+      // Update provider earnings NOW that customer has paid
+      if (providerId.isNotEmpty) {
+        final provSnap = await FirebaseDatabase.instance.ref('providers/$providerId').get();
+        if (provSnap.exists) {
+          final data = Map<String, dynamic>.from(provSnap.value as Map);
+          final currentEarned = ((data['totalEarned'] ?? 0) as num).toDouble();
+          final svcName = widget.booking['service'] as String? ?? '';
+          final commRate = _getCommissionRate(svcName);
+          final netEarned = _baseAmount * (1 - commRate / 100);
+          await FirebaseDatabase.instance.ref('providers/$providerId').update({
+            'totalEarned': currentEarned + netEarned,
+          });
+        }
       }
       // Server verify (non-blocking)
       _verifyServer(r, uid);

@@ -2,8 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
-import 'package:geolocator/geolocator.dart';
-import 'package:geocoding/geocoding.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../utils/theme.dart';
 import '../../services/firebase_service.dart';
@@ -31,7 +29,7 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
   final _nameCtrl = TextEditingController();
   final _phoneCtrl = TextEditingController();
   bool _loading = false;
-  bool _detectingLocation = false;
+  bool _detectingLocation = false; // Always false - no re-fetch
   double? _customerLat;
   double? _customerLng;
 
@@ -46,7 +44,7 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
   void initState() {
     super.initState();
     _loadNamePhone();
-    _getLocation();
+    _loadSavedLocation(); // Use saved location, no GPS re-fetch
   }
 
   @override
@@ -58,32 +56,27 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
     super.dispose();
   }
 
-  Future<void> _getLocation() async {
-    setState(() { _detectingLocation = true; _addressCtrl.clear(); });
+  Future<void> _loadSavedLocation() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
     try {
-      LocationPermission permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
+      final snap = await FirebaseDatabase.instance.ref('customers/$uid').get();
+      if (!snap.exists) return;
+      final data = Map<String, dynamic>.from(snap.value as Map);
+      final lat = (data['lat'] as num?)?.toDouble();
+      final lng = (data['lng'] as num?)?.toDouble();
+      final savedAddress = data['address']?.toString() ?? '';
+      final city = data['city']?.toString() ?? '';
+      if (lat != null && lng != null && lat != 0 && lng != 0) {
+        setState(() {
+          _customerLat = lat;
+          _customerLng = lng;
+          if (_addressCtrl.text.isEmpty) {
+            _addressCtrl.text = savedAddress.isNotEmpty ? savedAddress : city;
+          }
+        });
       }
-      if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
-        setState(() => _detectingLocation = false);
-        return;
-      }
-      final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
-      setState(() { _customerLat = pos.latitude; _customerLng = pos.longitude; });
-      try {
-        final placemarks = await placemarkFromCoordinates(pos.latitude, pos.longitude);
-        if (placemarks.isNotEmpty) {
-          final p = placemarks.first;
-          final parts = [p.name, p.street, p.subLocality, p.locality, p.administrativeArea]
-              .where((s) => s != null && s.isNotEmpty && s != p.locality).toList();
-          final addr = '${parts.join(', ')}, ${p.locality ?? ''}, ${p.administrativeArea ?? ''}';
-          // Always set GPS address — never use old saved address
-          if (mounted) setState(() => _addressCtrl.text = addr.trim().replaceAll(', ,', ','));
-        }
-      } catch (e) {}
     } catch (e) {}
-    if (mounted) setState(() => _detectingLocation = false);
   }
 
   Future<void> _loadNamePhone() async {
@@ -252,7 +245,7 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
 
       // GPS detect button
       GestureDetector(
-        onTap: _detectingLocation ? null : _getLocation,
+        onTap: null, // Location already saved at login
         child: Container(padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             color: _customerLat != null ? AppColors.greenSoft : AppColors.tealSoft,
@@ -265,8 +258,7 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
                     color: _customerLat != null ? AppColors.green : AppColors.teal, size: 20),
             const SizedBox(width: 10),
             Expanded(child: Text(
-              _detectingLocation ? 'Detecting your location...' :
-              _customerLat != null ? 'GPS detected — tap to refresh' : 'Tap to detect current location',
+              _customerLat != null ? 'Location saved from login ✓' : 'Location not available',
               style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600,
                 color: _customerLat != null ? AppColors.green : AppColors.teal))),
             // Map view button

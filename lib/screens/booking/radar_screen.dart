@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:firebase_database/firebase_database.dart';
-import 'package:audioplayers/audioplayers.dart';
 import '../../utils/theme.dart';
 import 'booking_confirmed_screen.dart';
 import 'booking_pending_screen.dart';
@@ -43,7 +42,6 @@ class _RadarScreenState extends State<RadarScreen>
   Timer? _rangeTimer;
   final List<Map<String, dynamic>> _logs = [];
   int _providersFound = 0;
-  final _audioPlayer = AudioPlayer();
 
   late AnimationController _sweepCtrl;
   late AnimationController _pulseCtrl;
@@ -68,12 +66,8 @@ class _RadarScreenState extends State<RadarScreen>
   }
 
   Future<void> _startRadarSound() async {
-    try {
-      await _audioPlayer.setReleaseMode(ReleaseMode.loop);
-      await _audioPlayer.play(AssetSource('sounds/radar.mp3'));
-    } catch (e) {
-      // No sound file - silent
-    }
+    // Haptic pulse instead of sound
+    HapticFeedback.lightImpact();
   }
 
   @override
@@ -83,19 +77,18 @@ class _RadarScreenState extends State<RadarScreen>
     _pulseCtrl.dispose();
     _pollTimer?.cancel();
     _rangeTimer?.cancel();
-    _audioPlayer.dispose();
     super.dispose();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused ||
-        state == AppLifecycleState.inactive) {
+    // inactive = phone call, notification pull-down — DO NOT stop radar
+    // Only stop on paused (app fully backgrounded)
+    if (state == AppLifecycleState.paused) {
       if (_radarActive) {
         _radarActive = false;
         _pollTimer?.cancel();
         _rangeTimer?.cancel();
-        _audioPlayer.stop();
         // Make booking pending when app goes to background
         FirebaseDatabase.instance
             .ref('active_bookings/${widget.bookingId}')
@@ -109,6 +102,12 @@ class _RadarScreenState extends State<RadarScreen>
           'status': 'pending',
           'pendingAt': DateTime.now().toIso8601String(),
         });
+      }
+    } else if (state == AppLifecycleState.resumed) {
+      // Resume radar if it was active before
+      if (!_radarActive && !_navigating) {
+        _radarActive = true;
+        _startRange(_currentRangeIdx);
       }
     }
   }

@@ -6,7 +6,6 @@ import 'package:firebase_database/firebase_database.dart';
 import 'package:http/http.dart' as http;
 import 'package:razorpay_flutter/razorpay_flutter.dart';
 import '../../utils/theme.dart';
-import '../../utils/sound_manager.dart';
 import 'review_screen.dart';
 
 class PaymentScreen extends StatefulWidget {
@@ -69,8 +68,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
       }
       // Server verify (non-blocking)
       _verifyServer(r, uid);
-      // Play payment sound
-      await SoundManager.play(AppSound.payment);
+      HapticFeedback.heavyImpact();
       setState(() { _loading = false; _paid = true; });
       await Future.delayed(const Duration(milliseconds: 1000));
       if (mounted) Navigator.pushReplacement(context, MaterialPageRoute(

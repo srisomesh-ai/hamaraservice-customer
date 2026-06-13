@@ -9,6 +9,8 @@ import 'services/house_maid_screen.dart';
 import 'dashboard/my_bookings_screen.dart';
 import 'dashboard/booking_history_screen.dart';
 import 'dashboard/profile_screen.dart';
+import 'dashboard/completed_bookings_screen.dart';
+import 'dashboard/cancelled_bookings_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -95,7 +97,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   void initState() {
     super.initState();
     _user = FirebaseAuth.instance.currentUser;
-    _bookingTabCtrl = TabController(length: 2, vsync: this);
+    _bookingTabCtrl = TabController(length: 3, vsync: this);
     _loadCity();
   }
 
@@ -492,12 +494,20 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           indicatorColor: AppColors.brand,
           labelColor: Colors.white,
           unselectedLabelColor: Colors.white70,
-          tabs: const [Tab(text: '📋 Active'), Tab(text: '🕑 History')],
+          tabs: const [
+            Tab(text: '📋 Active'),
+            Tab(text: '✅ Completed'),
+            Tab(text: '❌ Cancelled'),
+          ],
         ),
       ),
       body: TabBarView(
         controller: _bookingTabCtrl,
-        children: const [MyBookingsScreen(), BookingHistoryScreen()],
+        children: const [
+          MyBookingsScreen(),
+          CompletedBookingsScreen(),
+          CancelledBookingsScreen(),
+        ],
       ),
     );
   }

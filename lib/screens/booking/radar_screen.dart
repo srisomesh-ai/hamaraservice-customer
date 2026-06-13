@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:firebase_database/firebase_database.dart';
 import '../../utils/theme.dart';
 import 'booking_confirmed_screen.dart';
@@ -235,8 +236,7 @@ class _RadarScreenState extends State<RadarScreen>
   void _providerAccepted() async {
     if (_navigating || !mounted) return;
     _navigating = true;
-    _audioPlayer.stop();
-    setState(() => _radarActive = false);
+        setState(() => _radarActive = false);
     _addLog('✅', 'Provider found and confirmed!', type: 'success');
     await Future.delayed(const Duration(milliseconds: 800));
     if (!mounted) return;
@@ -255,8 +255,7 @@ class _RadarScreenState extends State<RadarScreen>
   void _bookingPending() async {
     if (_navigating || !mounted) return;
     _navigating = true;
-    _audioPlayer.stop();
-    setState(() => _radarActive = false);
+        setState(() => _radarActive = false);
     _pollTimer?.cancel();
     _rangeTimer?.cancel();
     try {
@@ -289,8 +288,7 @@ class _RadarScreenState extends State<RadarScreen>
   }
 
   void _cancelSearch() async {
-    _audioPlayer.stop();
-    setState(() => _radarActive = false);
+        setState(() => _radarActive = false);
     _pollTimer?.cancel();
     _rangeTimer?.cancel();
     try {

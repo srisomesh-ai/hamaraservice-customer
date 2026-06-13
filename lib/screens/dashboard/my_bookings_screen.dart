@@ -4,7 +4,6 @@ import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:audioplayers/audioplayers.dart';
 import '../../utils/theme.dart';
 import '../booking/payment_screen.dart';
 
@@ -24,8 +23,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
   String _otpBookingId = '';
   final Map<String, StreamSubscription> _otpWatchers = {};
   final Map<String, StreamSubscription> _acceptWatchers = {};
-  final _audio = AudioPlayer();
-
+  
   // In-app accepted alert
   bool _showAcceptedAlert = false;
   String _acceptedProviderName = '';
@@ -43,7 +41,6 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
     _listener?.cancel();
     for (final s in _otpWatchers.values) s.cancel();
     for (final s in _acceptWatchers.values) s.cancel();
-    _audio.dispose();
     super.dispose();
   }
 
@@ -107,7 +104,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
 
   void _showProviderAcceptedAlert(String name, String phone, String service) async {
     // Play sound + vibrate
-    try { await _audio.play(AssetSource('sounds/order_accepted.mp3')); } catch (_) {}
+    SystemSound.play(SystemSoundType.alert);
     HapticFeedback.heavyImpact();
     if (mounted) {
       setState(() {
@@ -208,7 +205,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
     if (confirmed != true || selectedReason == null) return;
 
     // Play cancel sound
-    try { await _audio.play(AssetSource('sounds/cancelled.mp3')); } catch (_) {}
+    HapticFeedback.heavyImpact();
 
     final cancelReason = selectedReason == 'Other reason' && reasonCtrl.text.trim().isNotEmpty
         ? reasonCtrl.text.trim() : selectedReason!;

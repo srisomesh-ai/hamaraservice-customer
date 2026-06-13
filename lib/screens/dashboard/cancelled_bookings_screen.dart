@@ -4,13 +4,13 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import '../../utils/theme.dart';
 
-class CompletedBookingsScreen extends StatefulWidget {
-  const CompletedBookingsScreen({super.key});
+class CancelledBookingsScreen extends StatefulWidget {
+  const CancelledBookingsScreen({super.key});
   @override
-  State<CompletedBookingsScreen> createState() => _CompletedBookingsScreenState();
+  State<CancelledBookingsScreen> createState() => _CancelledBookingsScreenState();
 }
 
-class _CompletedBookingsScreenState extends State<CompletedBookingsScreen> {
+class _CancelledBookingsScreenState extends State<CancelledBookingsScreen> {
   List<Map<String, dynamic>> _bookings = [];
   bool _loading = true;
   StreamSubscription? _listener;
@@ -40,12 +40,12 @@ class _CompletedBookingsScreenState extends State<CompletedBookingsScreen> {
       final mine = all.entries
           .where((e) {
             final b = e.value as Map;
-            return b['customerId'] == uid && b['status'] == 'completed';
+            return b['customerId'] == uid && b['status'] == 'cancelled';
           })
           .map((e) => Map<String, dynamic>.from({...e.value as Map, 'id': e.key}))
           .toList()
-        ..sort((a, b) => (b['completedAt'] ?? b['paidAt'] ?? b['createdAt'] ?? '')
-            .compareTo(a['completedAt'] ?? a['paidAt'] ?? a['createdAt'] ?? ''));
+        ..sort((a, b) => (b['cancelledAt'] ?? b['createdAt'] ?? '')
+            .compareTo(a['cancelledAt'] ?? a['createdAt'] ?? ''));
       if (mounted) setState(() { _bookings = mine; _loading = false; });
     });
   }
@@ -56,12 +56,14 @@ class _CompletedBookingsScreenState extends State<CompletedBookingsScreen> {
     if (_bookings.isEmpty) {
       return Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
         Container(width: 80, height: 80,
-          decoration: BoxDecoration(color: AppColors.greenSoft, shape: BoxShape.circle),
-          child: const Icon(Icons.check_circle_rounded, size: 40, color: AppColors.green)),
+          decoration: BoxDecoration(color: AppColors.red.withOpacity(0.08), shape: BoxShape.circle),
+          child: const Icon(Icons.cancel_rounded, size: 40, color: AppColors.red)),
         const SizedBox(height: 16),
-        const Text('No Completed Bookings', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.ink)),
+        const Text('No Cancelled Bookings',
+          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.ink)),
         const SizedBox(height: 8),
-        const Text('Your completed jobs will appear here', style: TextStyle(color: AppColors.muted, fontSize: 13)),
+        const Text('Cancelled jobs will appear here',
+          style: TextStyle(color: AppColors.muted, fontSize: 13)),
       ]));
     }
     return RefreshIndicator(
@@ -77,7 +79,7 @@ class _CompletedBookingsScreenState extends State<CompletedBookingsScreen> {
     final id = (b['id'] ?? '').toString();
     final shortId = id.replaceAll('-','').length > 8
         ? id.replaceAll('-','').substring(0,8).toUpperCase() : id.toUpperCase();
-    final amountPaid = b['amountPaid'] ?? b['price'] ?? b['priceVal'] ?? 0;
+    final penalty = int.tryParse(b['penalty']?.toString() ?? '0') ?? 0;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
@@ -85,7 +87,7 @@ class _CompletedBookingsScreenState extends State<CompletedBookingsScreen> {
         boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 10)]),
       child: Column(children: [
         Container(padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(color: AppColors.green.withOpacity(0.07),
+          decoration: BoxDecoration(color: AppColors.red.withOpacity(0.06),
             borderRadius: const BorderRadius.vertical(top: Radius.circular(16))),
           child: Row(children: [
             Text(b['icon'] ?? '🔧', style: const TextStyle(fontSize: 26)),
@@ -96,10 +98,10 @@ class _CompletedBookingsScreenState extends State<CompletedBookingsScreen> {
               Text('ID: $shortId', style: const TextStyle(fontSize: 10, color: AppColors.muted)),
             ])),
             Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(color: AppColors.green.withOpacity(0.15),
+              decoration: BoxDecoration(color: AppColors.red.withOpacity(0.12),
                 borderRadius: BorderRadius.circular(20)),
-              child: const Text('Completed',
-                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.green))),
+              child: const Text('Cancelled',
+                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.red))),
           ])),
         Padding(padding: const EdgeInsets.all(14), child: Column(
           crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -107,14 +109,23 @@ class _CompletedBookingsScreenState extends State<CompletedBookingsScreen> {
           const SizedBox(height: 5),
           _row(Icons.location_on_rounded, b['address'] ?? ''),
           const SizedBox(height: 5),
-          _row(Icons.currency_rupee_rounded, 'Rs.$amountPaid paid'),
-          if ((b['providerName'] ?? '').toString().isNotEmpty) ...[
+          _row(Icons.currency_rupee_rounded, 'Rs.${b['price'] ?? b['priceVal'] ?? 0}'),
+          if ((b['cancelReason'] ?? '').toString().isNotEmpty) ...[
             const SizedBox(height: 5),
-            _row(Icons.person_rounded, 'Provider: ${b['providerName']}'),
+            _row(Icons.info_outline_rounded, 'Reason: ${b['cancelReason']}'),
           ],
-          if ((b['paymentMethod'] ?? '').toString().isNotEmpty) ...[
-            const SizedBox(height: 5),
-            _row(Icons.payment_rounded, 'Paid via ${b['paymentMethod']}'),
+          if (penalty > 0) ...[
+            const SizedBox(height: 8),
+            Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(color: AppColors.red.withOpacity(0.07),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: AppColors.red.withOpacity(0.2))),
+              child: Row(children: [
+                const Icon(Icons.warning_amber_rounded, color: AppColors.red, size: 14),
+                const SizedBox(width: 6),
+                Text('Rs.$penalty penalty was applied',
+                  style: const TextStyle(fontSize: 11, color: AppColors.red, fontWeight: FontWeight.w600)),
+              ])),
           ],
         ])),
       ]),
@@ -123,7 +134,7 @@ class _CompletedBookingsScreenState extends State<CompletedBookingsScreen> {
 
   Widget _row(IconData icon, String text) {
     return Row(children: [
-      Icon(icon, size: 14, color: AppColors.teal),
+      Icon(icon, size: 14, color: AppColors.muted),
       const SizedBox(width: 8),
       Expanded(child: Text(text, style: const TextStyle(fontSize: 13, color: AppColors.ink2))),
     ]);

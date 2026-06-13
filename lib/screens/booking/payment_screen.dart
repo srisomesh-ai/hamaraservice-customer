@@ -260,6 +260,18 @@ class _PaymentScreenState extends State<PaymentScreen> {
     );
   }
 
+  double _getCommissionRate(String service) {
+    final s = service.toLowerCase();
+    if (s.contains('electrician') || s.contains('plumber')) return 20;
+    if (s.contains('ac') || s.contains('appliance')) return 18;
+    if (s.contains('deep clean') || s.contains('kitchen')) return 12;
+    if (s.contains('carpenter') || s.contains('painter') || s.contains('civil')) return 12;
+    if (s.contains('water purifier') || s.contains('cctv') || s.contains('doctor') ||
+        s.contains('nurse') || s.contains('fitness') || s.contains('massage') ||
+        s.contains('beauty') || s.contains('mechanic') || s.contains('driver')) return 15;
+    return 10;
+  }
+
   Widget _billRow(String label, String value) {
     return Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
       Text(label, style: const TextStyle(fontSize: 13, color: AppColors.muted)),

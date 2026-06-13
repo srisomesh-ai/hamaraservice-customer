@@ -5,7 +5,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:audioplayers/audioplayers.dart';
-import 'package:vibration/vibration.dart';
 import '../../utils/theme.dart';
 import '../booking/payment_screen.dart';
 
@@ -109,7 +108,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
   void _showProviderAcceptedAlert(String name, String phone, String service) async {
     // Play sound + vibrate
     try { await _audio.play(AssetSource('sounds/order_accepted.mp3')); } catch (_) {}
-    try { Vibration.vibrate(pattern: [0, 400, 100, 400]); } catch (_) {}
+    HapticFeedback.heavyImpact();
     if (mounted) {
       setState(() {
         _showAcceptedAlert = true;

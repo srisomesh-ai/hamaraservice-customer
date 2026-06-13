@@ -11,95 +11,52 @@ import 'utils/theme.dart';
 import 'screens/splash_screen.dart';
 
 @pragma('vm:entry-point')
-Future<void> _firebaseMessagingBackgroundHandler(
-    RemoteMessage message) async {
-  await Firebase.initializeApp(
-      options: DefaultFirebaseOptions.currentPlatform);
+Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 }
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
   try {
-    await Firebase.initializeApp(
-        options: DefaultFirebaseOptions.currentPlatform);
+    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+    FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+    await FirebaseMessaging.instance.requestPermission(alert: true, badge: true, sound: true);
+    await FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(alert: true, badge: true, sound: true);
 
-    FirebaseMessaging.onBackgroundMessage(
-        _firebaseMessagingBackgroundHandler);
-
-    await FirebaseMessaging.instance.requestPermission(
-      alert: true,
-      badge: true,
-      sound: true,
-    );
-    await FirebaseMessaging.instance
-        .setForegroundNotificationPresentationOptions(
-      alert: true,
-      badge: true,
-      sound: true,
-    );
-
-    // Request location permission on startup
-    _requestLocationOnStartup();
-
-    // Save FCM token whenever user logs in
+    // Save FCM token + update location whenever user logs in
     FirebaseAuth.instance.authStateChanges().listen((user) async {
       if (user != null) {
         try {
-          final token =
-              await FirebaseMessaging.instance.getToken();
+          final token = await FirebaseMessaging.instance.getToken();
           if (token != null) {
-            await FirebaseDatabase.instance
-                .ref('customers/${user.uid}/fcmToken')
-                .set(token);
+            await FirebaseDatabase.instance.ref('customers/${user.uid}/fcmToken').set(token);
           }
         } catch (e) {}
-
-        // Also update location on login
         _updateUserLocation(user.uid);
       }
     });
   } catch (e) {}
 
-  SystemChrome.setPreferredOrientations(
-      [DeviceOrientation.portraitUp]);
+  SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
   runApp(const CustomerApp());
-}
-
-Future<void> _requestLocationOnStartup() async {
-  try {
-    LocationPermission permission =
-        await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-    }
-  } catch (e) {}
 }
 
 Future<void> _updateUserLocation(String uid) async {
   try {
-    LocationPermission permission =
-        await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied ||
-        permission == LocationPermission.deniedForever) {
-      return;
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
     }
-    final pos = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.medium);
+    if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) return;
+    final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.medium);
     String city = '';
     try {
-      final placemarks = await placemarkFromCoordinates(
-          pos.latitude, pos.longitude);
+      final placemarks = await placemarkFromCoordinates(pos.latitude, pos.longitude);
       if (placemarks.isNotEmpty) {
-        city = placemarks.first.locality ??
-            placemarks.first.subAdministrativeArea ??
-            '';
+        city = placemarks.first.locality ?? placemarks.first.subAdministrativeArea ?? '';
       }
     } catch (e) {}
-
-    await FirebaseDatabase.instance
-        .ref('customers/$uid')
-        .update({
+    await FirebaseDatabase.instance.ref('customers/$uid').update({
       'lat': pos.latitude,
       'lng': pos.longitude,
       if (city.isNotEmpty) 'city': city,

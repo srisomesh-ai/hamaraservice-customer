@@ -7,8 +7,8 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../utils/theme.dart';
 import '../booking/payment_screen.dart';
 
-// This widget returns ONLY content — NO Scaffold, NO AppBar, NO outer TabBar
-// The parent dashboard screen provides all of that
+// ACTIVE BOOKINGS ONLY — no Scaffold, no AppBar, no TabBar
+// Parent home_screen.dart provides all navigation
 
 class MyBookingsScreen extends StatefulWidget {
   const MyBookingsScreen({super.key});
@@ -16,103 +16,56 @@ class MyBookingsScreen extends StatefulWidget {
   State<MyBookingsScreen> createState() => _MyBookingsScreenState();
 }
 
-class _MyBookingsScreenState extends State<MyBookingsScreen>
-    with SingleTickerProviderStateMixin {
-  late TabController _tabCtrl;
-  List<Map<String, dynamic>> _active = [];
-  List<Map<String, dynamic>> _history = [];
+class _MyBookingsScreenState extends State<MyBookingsScreen> {
+  List<Map<String, dynamic>> _bookings = [];
   bool _loading = true;
-  String _historyFilter = 'all';
-  final Map<String, StreamSubscription> _otpWatchers = {};
+  StreamSubscription? _listener;
   bool _showOtpPopup = false;
   String _otpCode = '';
-  String _otpBookingId = '';
   String _otpService = '';
-  StreamSubscription? _bookingsListener;
-
-  final List<String> _cancelReasons = [
-    'Found another provider',
-    'Service no longer needed',
-    'Wrong service selected',
-    'Provider taking too long',
-    'Other reason',
-  ];
+  String _otpBookingId = '';
+  final Map<String, StreamSubscription> _otpWatchers = {};
 
   @override
   void initState() {
     super.initState();
-    _tabCtrl = TabController(length: 2, vsync: this);
-    _loadBookings();
-    _listenRealtime();
+    _listen();
   }
 
   @override
   void dispose() {
-    _tabCtrl.dispose();
-    _bookingsListener?.cancel();
+    _listener?.cancel();
     for (final s in _otpWatchers.values) s.cancel();
     super.dispose();
   }
 
-  // Real-time listener — updates immediately when admin deletes or changes data
-  void _listenRealtime() {
+  void _listen() {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
-    _bookingsListener = FirebaseDatabase.instance
-        .ref('bookings')
-        .onValue
-        .listen((event) {
+    _listener = FirebaseDatabase.instance.ref('bookings').onValue.listen((event) {
       if (!mounted) return;
       if (!event.snapshot.exists) {
-        setState(() { _active = []; _history = []; _loading = false; });
+        setState(() { _bookings = []; _loading = false; });
         return;
       }
       final all = Map<String, dynamic>.from(event.snapshot.value as Map);
+      final activeStatuses = ['confirmed','searching','accepted','active','pending','otp_sent'];
       final mine = all.entries
-          .where((e) => (e.value as Map)['customerId'] == uid)
+          .where((e) {
+            final b = e.value as Map;
+            return b['customerId'] == uid && activeStatuses.contains(b['status']);
+          })
           .map((e) => Map<String, dynamic>.from({...e.value as Map, 'id': e.key}))
           .toList()
         ..sort((a, b) => (b['createdAt'] ?? '').compareTo(a['createdAt'] ?? ''));
-
-      final activeStatuses = ['confirmed','searching','accepted','active','pending','otp_sent'];
-      if (mounted) {
-        setState(() {
-          _active = mine.where((b) => activeStatuses.contains(b['status'])).toList();
-          _history = mine.where((b) => ['completed','cancelled'].contains(b['status'])).toList();
-          _loading = false;
-        });
-      }
-      for (final b in _active) {
+      setState(() { _bookings = mine; _loading = false; });
+      for (final b in mine) {
         final id = b['id'] as String? ?? '';
         if (['active','otp_sent','accepted'].contains(b['status']) && id.isNotEmpty) {
           _watchOTP(id, b['service'] ?? '');
         }
       }
     });
-  }
-
-  Future<void> _loadBookings() async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) return;
-    setState(() => _loading = true);
-    try {
-      final snap = await FirebaseDatabase.instance.ref('bookings').get();
-      if (!snap.exists) { setState(() { _active = []; _history = []; _loading = false; }); return; }
-      final all = Map<String, dynamic>.from(snap.value as Map);
-      final mine = all.entries
-          .where((e) => (e.value as Map)['customerId'] == uid)
-          .map((e) => Map<String, dynamic>.from({...e.value as Map, 'id': e.key}))
-          .toList()
-        ..sort((a, b) => (b['createdAt'] ?? '').compareTo(a['createdAt'] ?? ''));
-      final activeStatuses = ['confirmed','searching','accepted','active','pending','otp_sent'];
-      setState(() {
-        _active = mine.where((b) => activeStatuses.contains(b['status'])).toList();
-        _history = mine.where((b) => ['completed','cancelled'].contains(b['status'])).toList();
-        _loading = false;
-      });
-    } catch (e) {
-      setState(() => _loading = false);
-    }
   }
 
   void _watchOTP(String bookingId, String service) {
@@ -127,7 +80,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen>
         setState(() { _showOtpPopup = true; _otpCode = otp; _otpBookingId = bookingId; _otpService = service; });
       } else if (status == 'verified') {
         setState(() => _showOtpPopup = false);
-        final booking = _active.firstWhere((b) => b['id'] == bookingId, orElse: () => {});
+        final booking = _bookings.firstWhere((b) => b['id'] == bookingId, orElse: () => {});
         if (booking.isNotEmpty && mounted) {
           Navigator.push(context, MaterialPageRoute(
               builder: (_) => PaymentScreen(bookingId: bookingId, booking: booking)));
@@ -152,14 +105,16 @@ class _MyBookingsScreenState extends State<MyBookingsScreen>
         builder: (ctx, setS) => AlertDialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
           title: Row(children: [
-            Icon(['accepted','active'].contains(status) ? Icons.warning_amber_rounded : Icons.cancel_outlined,
+            Icon(['accepted','active'].contains(status)
+                ? Icons.warning_amber_rounded : Icons.cancel_outlined,
                 color: AppColors.red, size: 24),
             const SizedBox(width: 8),
             const Expanded(child: Text('Cancel Booking',
                 style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16))),
           ]),
           content: SingleChildScrollView(child: Column(
-            mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               if (['accepted','active'].contains(status)) ...[
                 Container(padding: const EdgeInsets.all(12),
@@ -169,20 +124,22 @@ class _MyBookingsScreenState extends State<MyBookingsScreen>
                   child: const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     Text('Rs.20 Penalty', style: TextStyle(fontWeight: FontWeight.w800, color: AppColors.red, fontSize: 13)),
                     SizedBox(height: 4),
-                    Text('Provider already accepted. Rs.20 deducted from next payment.',
+                    Text('Provider already accepted. Rs.20 will be deducted from your next payment.',
                         style: TextStyle(fontSize: 12, color: AppColors.ink2, height: 1.4)),
                   ])),
                 const SizedBox(height: 12),
               ],
-              const Text('Reason:', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.ink)),
+              const Text('Reason for cancellation:',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.ink)),
               const SizedBox(height: 8),
-              ..._cancelReasons.map((r) => RadioListTile<String>(
-                value: r, groupValue: selectedReason, dense: true,
-                contentPadding: EdgeInsets.zero,
-                title: Text(r, style: const TextStyle(fontSize: 13)),
-                activeColor: AppColors.teal,
-                onChanged: (v) => setS(() => selectedReason = v),
-              )),
+              ...['Found another provider','Service no longer needed',
+                  'Wrong service selected','Provider taking too long','Other reason']
+                  .map((r) => RadioListTile<String>(
+                    value: r, groupValue: selectedReason, dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(r, style: const TextStyle(fontSize: 13)),
+                    activeColor: AppColors.teal,
+                    onChanged: (v) => setS(() => selectedReason = v))),
               if (selectedReason == 'Other reason') ...[
                 const SizedBox(height: 8),
                 TextField(controller: reasonCtrl, maxLines: 2,
@@ -193,13 +150,15 @@ class _MyBookingsScreenState extends State<MyBookingsScreen>
             ])),
           actions: [
             TextButton(onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Keep Booking', style: TextStyle(color: AppColors.teal, fontWeight: FontWeight.w700))),
+              child: const Text('Keep Booking',
+                  style: TextStyle(color: AppColors.teal, fontWeight: FontWeight.w700))),
             ElevatedButton(
               onPressed: selectedReason == null ? null : () => Navigator.pop(ctx, true),
               style: ElevatedButton.styleFrom(backgroundColor: AppColors.red,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
-              child: Text(['accepted','active'].contains(status) ? 'Cancel (+Rs.20)' : 'Cancel',
-                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700))),
+              child: Text(['accepted','active'].contains(status)
+                  ? 'Cancel (+Rs.20)' : 'Confirm Cancel',
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700))),
           ],
         ),
       ),
@@ -221,116 +180,77 @@ class _MyBookingsScreenState extends State<MyBookingsScreen>
       update['penalty'] = '20';
       final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
       if (uid.isNotEmpty) {
-        final snap = await FirebaseDatabase.instance.ref('customers/$uid/pendingPenalty').get();
+        final snap = await FirebaseDatabase.instance
+            .ref('customers/$uid/pendingPenalty').get();
         final existing = (snap.value as num?)?.toInt() ?? 0;
-        await FirebaseDatabase.instance.ref('customers/$uid').update({'pendingPenalty': existing + 20});
+        await FirebaseDatabase.instance
+            .ref('customers/$uid').update({'pendingPenalty': existing + 20});
       }
     }
 
     await FirebaseDatabase.instance.ref('bookings/$id').update(update);
-    await FirebaseDatabase.instance.ref('active_bookings/$id').update(
-        {'status': 'cancelled', 'cancelledBy': 'customer'});
+    await FirebaseDatabase.instance.ref('active_bookings/$id')
+        .update({'status': 'cancelled', 'cancelledBy': 'customer'});
 
     if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text(['accepted','active'].contains(status)
-          ? 'Booking cancelled. Rs.20 penalty applied.' : 'Booking cancelled.'),
-      backgroundColor: AppColors.red, duration: const Duration(seconds: 3)));
-  }
-
-  List<Map<String, dynamic>> get _filtered {
-    if (_historyFilter == 'all') return _history;
-    return _history.where((b) => b['status'] == _historyFilter).toList();
+          ? 'Booking cancelled. Rs.20 penalty applied to next payment.'
+          : 'Booking cancelled.'),
+      backgroundColor: AppColors.red,
+      duration: const Duration(seconds: 3)));
   }
 
   @override
   Widget build(BuildContext context) {
-    // Returns ONLY the content — NO Scaffold, NO AppBar
+    // NO Scaffold, NO AppBar, NO TabBar — parent handles all that
     return Stack(children: [
-      Column(children: [
-        // Inner tab bar
-        Container(
-          color: AppColors.teal,
-          child: TabBar(
-            controller: _tabCtrl,
-            indicatorColor: AppColors.brand,
-            indicatorWeight: 3,
-            labelColor: Colors.white,
-            unselectedLabelColor: Colors.white60,
-            labelStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
-            tabs: [
-              Tab(text: 'Active${_active.isNotEmpty ? " (${_active.length})" : ""}'),
-              Tab(text: 'History${_history.isNotEmpty ? " (${_history.length})" : ""}'),
-            ],
-          ),
-        ),
-        Expanded(
-          child: TabBarView(
-            controller: _tabCtrl,
-            children: [_buildActive(), _buildHistory()],
-          ),
-        ),
-      ]),
+      _buildList(),
       if (_showOtpPopup) _buildOtpPopup(),
     ]);
   }
 
-  Widget _buildActive() {
+  Widget _buildList() {
     if (_loading) return const Center(child: CircularProgressIndicator(color: AppColors.teal));
-    if (_active.isEmpty) return _empty('No Active Bookings', 'Book a service to get started!', Icons.calendar_today_rounded);
+    if (_bookings.isEmpty) {
+      return Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+        Container(width: 80, height: 80,
+          decoration: BoxDecoration(color: AppColors.tealSoft, shape: BoxShape.circle),
+          child: const Icon(Icons.calendar_today_rounded, size: 40, color: AppColors.teal)),
+        const SizedBox(height: 16),
+        const Text('No Active Bookings',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.ink)),
+        const SizedBox(height: 8),
+        const Text('Book a service from Home to get started!',
+            style: TextStyle(color: AppColors.muted, fontSize: 13)),
+      ]));
+    }
     return RefreshIndicator(
-      onRefresh: _loadBookings, color: AppColors.teal,
-      child: ListView.builder(padding: const EdgeInsets.all(16),
-        itemCount: _active.length, itemBuilder: (_, i) => _card(_active[i])));
+      onRefresh: () async => _listen(),
+      color: AppColors.teal,
+      child: ListView.builder(
+        padding: const EdgeInsets.all(16),
+        itemCount: _bookings.length,
+        itemBuilder: (_, i) => _card(_bookings[i])),
+    );
   }
 
-  Widget _buildHistory() {
-    if (_loading) return const Center(child: CircularProgressIndicator(color: AppColors.teal));
-    return Column(children: [
-      Container(color: Colors.white,
-        padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
-        child: SingleChildScrollView(scrollDirection: Axis.horizontal,
-          child: Row(children: [
-            _chip('all', 'All (${_history.length})'),
-            const SizedBox(width: 8),
-            _chip('completed', 'Completed'),
-            const SizedBox(width: 8),
-            _chip('cancelled', 'Cancelled'),
-          ]))),
-      Expanded(child: _filtered.isEmpty
-          ? _empty('No History', 'Completed bookings appear here', Icons.history_rounded)
-          : RefreshIndicator(onRefresh: _loadBookings, color: AppColors.teal,
-              child: ListView.builder(padding: const EdgeInsets.all(16),
-                itemCount: _filtered.length,
-                itemBuilder: (_, i) => _card(_filtered[i], isHistory: true)))),
-    ]);
-  }
-
-  Widget _chip(String val, String label) {
-    final sel = _historyFilter == val;
-    return GestureDetector(
-      onTap: () { HapticFeedback.selectionClick(); setState(() => _historyFilter = val); },
-      child: Container(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        decoration: BoxDecoration(color: sel ? AppColors.teal : AppColors.bg,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: sel ? AppColors.teal : AppColors.line)),
-        child: Text(label, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700,
-          color: sel ? Colors.white : AppColors.ink2))));
-  }
-
-  Widget _card(Map<String, dynamic> b, {bool isHistory = false}) {
+  Widget _card(Map<String, dynamic> b) {
     final status = b['status'] ?? '';
-    final sc = _sc(status);
+    final sc = _statusColor(status);
     final hasProvider = (b['providerName'] ?? '').toString().isNotEmpty;
-    final canCancel = ['confirmed','searching','pending','accepted','active'].contains(status) && !isHistory;
+    final canCancel = ['confirmed','searching','pending','accepted','active'].contains(status);
     final penalty = int.tryParse(b['penalty']?.toString() ?? '0') ?? 0;
     final id = (b['id'] ?? '').toString();
-    final shortId = id.replaceAll('-','').length > 8 ? id.replaceAll('-','').substring(0,8).toUpperCase() : id.toUpperCase();
+    final shortId = id.replaceAll('-','').length > 8
+        ? id.replaceAll('-','').substring(0,8).toUpperCase()
+        : id.toUpperCase();
 
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
       decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16),
         boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 10)]),
       child: Column(children: [
+        // Header
         Container(padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(color: sc.withOpacity(0.07),
             borderRadius: const BorderRadius.vertical(top: Radius.circular(16))),
@@ -338,59 +258,71 @@ class _MyBookingsScreenState extends State<MyBookingsScreen>
             Text(b['icon'] ?? '🔧', style: const TextStyle(fontSize: 26)),
             const SizedBox(width: 10),
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(b['service'] ?? 'Service', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.ink)),
+              Text(b['service'] ?? 'Service',
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.ink)),
               Text('ID: $shortId', style: const TextStyle(fontSize: 10, color: AppColors.muted)),
             ])),
             Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(color: sc.withOpacity(0.15), borderRadius: BorderRadius.circular(20)),
-              child: Text(_sl(status), style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: sc))),
+              decoration: BoxDecoration(color: sc.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(20)),
+              child: Text(_statusLabel(status),
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: sc))),
           ])),
-        Padding(padding: const EdgeInsets.all(14), child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start, children: [
-          _row(Icons.calendar_today_rounded, '${b['date'] ?? ''} at ${b['time'] ?? ''}'),
+        // Body
+        Padding(padding: const EdgeInsets.all(14),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          _row(Icons.calendar_today_rounded,
+              '${b['date'] ?? ''} at ${b['time'] ?? ''}'),
           const SizedBox(height: 5),
-          _row(Icons.location_on_rounded, '${b['address'] ?? ''}${(b['landmark'] ?? '').toString().isNotEmpty ? '  (${b['landmark']})' : ''}'),
+          _row(Icons.location_on_rounded,
+              '${b['address'] ?? ''}${(b['landmark'] ?? '').toString().isNotEmpty ? '  (${b['landmark']})' : ''}'),
           const SizedBox(height: 5),
-          _row(Icons.currency_rupee_rounded, 'Rs.${b['price'] ?? b['priceVal'] ?? 0}${penalty > 0 ? '  +  Rs.$penalty penalty' : ''}'),
-
-          if (status == 'cancelled' && (b['cancelReason'] ?? '').toString().isNotEmpty) ...[
-            const SizedBox(height: 5),
-            _row(Icons.info_outline_rounded, 'Reason: ${b['cancelReason']}'),
-          ],
+          _row(Icons.currency_rupee_rounded,
+              'Rs.${b['price'] ?? b['priceVal'] ?? 0}${penalty > 0 ? '  +  Rs.$penalty penalty' : ''}'),
 
           if (penalty > 0) ...[
             const SizedBox(height: 8),
             Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
               decoration: BoxDecoration(color: AppColors.red.withOpacity(0.07),
-                borderRadius: BorderRadius.circular(8), border: Border.all(color: AppColors.red.withOpacity(0.2))),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: AppColors.red.withOpacity(0.2))),
               child: Row(children: [
                 const Icon(Icons.warning_amber_rounded, color: AppColors.red, size: 14),
                 const SizedBox(width: 6),
                 Text('Rs.$penalty penalty — deducted from next payment',
-                  style: const TextStyle(fontSize: 11, color: AppColors.red, fontWeight: FontWeight.w600)),
+                    style: const TextStyle(fontSize: 11, color: AppColors.red,
+                        fontWeight: FontWeight.w600)),
               ])),
           ],
 
-          if (hasProvider && !isHistory) ...[
+          // Provider info
+          if (hasProvider) ...[
             const SizedBox(height: 10),
             Container(padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(color: AppColors.greenSoft, borderRadius: BorderRadius.circular(10),
+              decoration: BoxDecoration(color: AppColors.greenSoft,
+                borderRadius: BorderRadius.circular(10),
                 border: Border.all(color: AppColors.green.withOpacity(0.3))),
               child: Row(children: [
                 Container(width: 36, height: 36,
-                  decoration: BoxDecoration(color: AppColors.green.withOpacity(0.2), shape: BoxShape.circle),
+                  decoration: BoxDecoration(
+                      color: AppColors.green.withOpacity(0.2), shape: BoxShape.circle),
                   child: const Icon(Icons.person_rounded, color: AppColors.green, size: 20)),
                 const SizedBox(width: 10),
                 Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  const Text('Your Provider', style: TextStyle(fontSize: 11, color: AppColors.green, fontWeight: FontWeight.w700)),
-                  Text(b['providerName'] ?? '', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.ink)),
+                  const Text('Your Provider',
+                      style: TextStyle(fontSize: 11, color: AppColors.green, fontWeight: FontWeight.w700)),
+                  Text(b['providerName'] ?? '',
+                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.ink)),
                   if ((b['acceptedBy'] as Map?)?['phone']?.toString().isNotEmpty == true)
                     Text((b['acceptedBy'] as Map)['phone'],
                         style: const TextStyle(fontSize: 12, color: AppColors.muted)),
                 ])),
                 if ((b['acceptedBy'] as Map?)?['phone']?.toString().isNotEmpty == true)
                   GestureDetector(
-                    onTap: () { HapticFeedback.mediumImpact(); launchUrl(Uri.parse('tel:${(b['acceptedBy'] as Map)['phone']}')); },
+                    onTap: () {
+                      HapticFeedback.mediumImpact();
+                      launchUrl(Uri.parse('tel:${(b['acceptedBy'] as Map)['phone']}'));
+                    },
                     child: Container(width: 38, height: 38,
                       decoration: const BoxDecoration(color: AppColors.green, shape: BoxShape.circle),
                       child: const Icon(Icons.phone_rounded, color: Colors.white, size: 18))),
@@ -401,11 +333,12 @@ class _MyBookingsScreenState extends State<MyBookingsScreen>
             const SizedBox(height: 10),
             Container(padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(color: AppColors.brand.withOpacity(0.08),
-                borderRadius: BorderRadius.circular(10), border: Border.all(color: AppColors.brand.withOpacity(0.3))),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppColors.brand.withOpacity(0.3))),
               child: const Row(children: [
                 Icon(Icons.lock_rounded, color: AppColors.brand, size: 16),
                 SizedBox(width: 8),
-                Expanded(child: Text('Provider requesting OTP — check popup',
+                Expanded(child: Text('Provider requesting OTP — check popup above',
                   style: TextStyle(fontSize: 12, color: AppColors.brand, fontWeight: FontWeight.w600))),
               ])),
           ],
@@ -415,11 +348,15 @@ class _MyBookingsScreenState extends State<MyBookingsScreen>
             SizedBox(width: double.infinity,
               child: OutlinedButton(
                 onPressed: () => _cancelBooking(b),
-                style: OutlinedButton.styleFrom(side: const BorderSide(color: AppColors.red),
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: AppColors.red),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                   minimumSize: const Size(double.infinity, 38)),
-                child: Text(['accepted','active'].contains(status) ? 'Cancel (Rs.20 penalty)' : 'Cancel Booking',
-                  style: const TextStyle(color: AppColors.red, fontWeight: FontWeight.w700, fontSize: 13)))),
+                child: Text(
+                  ['accepted','active'].contains(status)
+                      ? 'Cancel Booking (Rs.20 penalty)' : 'Cancel Booking',
+                  style: const TextStyle(color: AppColors.red,
+                      fontWeight: FontWeight.w700, fontSize: 13)))),
           ],
         ])),
       ]),
@@ -445,28 +382,35 @@ class _MyBookingsScreenState extends State<MyBookingsScreen>
                 const SizedBox(height: 8),
                 const Text('Job Completion OTP',
                   style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Colors.white)),
-                Text('Share with provider for $_otpService',
+                Text('Share with provider to complete $_otpService',
                   textAlign: TextAlign.center,
                   style: const TextStyle(fontSize: 12, color: Colors.white70)),
               ])),
             Padding(padding: const EdgeInsets.all(24), child: Column(children: [
-              const Text('YOUR OTP', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: AppColors.muted, letterSpacing: 1)),
+              const Text('YOUR OTP CODE',
+                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800,
+                    color: AppColors.muted, letterSpacing: 1)),
               const SizedBox(height: 12),
               Row(mainAxisAlignment: MainAxisAlignment.center,
                 children: _otpCode.split('').map((d) => Container(
-                  width: 56, height: 64, margin: const EdgeInsets.symmetric(horizontal: 4),
-                  decoration: BoxDecoration(color: AppColors.bg, borderRadius: BorderRadius.circular(12),
+                  width: 56, height: 64,
+                  margin: const EdgeInsets.symmetric(horizontal: 4),
+                  decoration: BoxDecoration(color: AppColors.bg,
+                    borderRadius: BorderRadius.circular(12),
                     border: Border.all(color: AppColors.green, width: 2)),
                   child: Center(child: Text(d,
-                    style: const TextStyle(fontSize: 34, fontWeight: FontWeight.w900, color: AppColors.ink))))).toList()),
+                    style: const TextStyle(fontSize: 34, fontWeight: FontWeight.w900,
+                        color: AppColors.ink))))).toList()),
               const SizedBox(height: 16),
               Container(padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(color: AppColors.yellow.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(10), border: Border.all(color: AppColors.yellow.withOpacity(0.3))),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: AppColors.yellow.withOpacity(0.3))),
                 child: const Row(children: [
                   Icon(Icons.warning_amber_rounded, color: AppColors.yellow, size: 16),
                   SizedBox(width: 8),
-                  Expanded(child: Text('Share only after service is completed to your satisfaction.',
+                  Expanded(child: Text(
+                    'Only share after service is completed to your satisfaction.',
                     style: TextStyle(fontSize: 11, color: AppColors.ink2))),
                 ])),
             ])),
@@ -474,18 +418,6 @@ class _MyBookingsScreenState extends State<MyBookingsScreen>
         ),
       ),
     );
-  }
-
-  Widget _empty(String t, String s, IconData icon) {
-    return Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-      Container(width: 80, height: 80,
-        decoration: BoxDecoration(color: AppColors.tealSoft, shape: BoxShape.circle),
-        child: Icon(icon, size: 40, color: AppColors.teal)),
-      const SizedBox(height: 16),
-      Text(t, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.ink)),
-      const SizedBox(height: 8),
-      Text(s, style: const TextStyle(color: AppColors.muted, fontSize: 13)),
-    ]));
   }
 
   Widget _row(IconData icon, String text) {
@@ -496,19 +428,17 @@ class _MyBookingsScreenState extends State<MyBookingsScreen>
     ]);
   }
 
-  Color _sc(String s) {
+  Color _statusColor(String s) {
     switch (s) {
       case 'confirmed': return AppColors.teal;
       case 'searching': case 'pending': return AppColors.yellow;
       case 'accepted': return AppColors.green;
       case 'active': case 'otp_sent': return AppColors.brand;
-      case 'completed': return AppColors.green;
-      case 'cancelled': return AppColors.red;
       default: return AppColors.muted;
     }
   }
 
-  String _sl(String s) {
+  String _statusLabel(String s) {
     switch (s) {
       case 'confirmed': return 'Confirmed';
       case 'searching': return 'Searching';
@@ -516,8 +446,6 @@ class _MyBookingsScreenState extends State<MyBookingsScreen>
       case 'accepted': return 'Provider Assigned';
       case 'active': return 'In Progress';
       case 'otp_sent': return 'Completing';
-      case 'completed': return 'Completed';
-      case 'cancelled': return 'Cancelled';
       default: return s;
     }
   }

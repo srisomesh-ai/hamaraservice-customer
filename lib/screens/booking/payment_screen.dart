@@ -23,7 +23,9 @@ class _PaymentScreenState extends State<PaymentScreen> {
   int _pendingPenalty = 0;
   late Razorpay _razorpay;
 
-  static const String _apiBase = 'https://hamaraservice.com/api';
+  // Firebase Cloud Functions — no Hostinger dependency
+  static const String _apiBase = 'https://hamaraservice.com/api'; // fallback
+  static const String _fbFunctions = '$FB_FUNCTIONS_BASE';
 
   @override
   void initState() {
@@ -91,7 +93,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
           if (provToken.isNotEmpty) {
             final svcName = widget.booking['service']?.toString() ?? '';
             await http.post(
-              Uri.parse('https://hamaraservice.com/api/notify_booking.php'),
+              Uri.parse('$_fbFunctions/notifyBooking'),
               headers: {'Content-Type': 'application/json'},
               body: jsonEncode({
                 'event': 'payment_received',
@@ -119,7 +121,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
   }
 
   void _verifyServer(PaymentSuccessResponse r, String uid) {
-    http.post(Uri.parse('$_apiBase/verify-payment.php'),
+    http.post(Uri.parse('$_fbFunctions/verifyPayment'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({
         'razorpay_order_id': r.orderId ?? '',
@@ -148,7 +150,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
     try {
       final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
       final user = FirebaseAuth.instance.currentUser;
-      final res = await http.post(Uri.parse('$_apiBase/create-order.php'),
+      final res = await http.post(Uri.parse('$_fbFunctions/createOrder'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'bookingId': widget.bookingId,

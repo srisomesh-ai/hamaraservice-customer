@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../utils/theme.dart';
 import 'service_widgets.dart';
+import '../../services/service_price_service.dart';
 
 class BikeWashScreen extends StatefulWidget {
   const BikeWashScreen({super.key});
@@ -10,8 +11,8 @@ class _BikeWashState extends State<BikeWashScreen> {
   String _type = 'bike';
   int _count = 1;
   bool _chain = false, _polish = false;
-  final _typePx = {'bike':199,'scooter':199,'sport':299,'electric':249};
-  int get _total => (_typePx[_type]! * _count) + (_chain?99:0) + (_polish?149:0);
+  int _p(String key) => ServicePriceService().getPrice('SVC009', key);
+  int get _total => (_p(_type) * _count) + (_chain?_p('addon_chain'):0) + (_polish?_p('addon_polish'):0);
   List<String> get _summary => [
     'Bike Wash > $_count ${_tl(_type)}',
     if (_chain) 'Bike Wash > Chain Clean & Lube +₹99',

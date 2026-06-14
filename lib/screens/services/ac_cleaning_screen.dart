@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../utils/theme.dart';
 import 'service_widgets.dart';
+import '../../services/service_price_service.dart';
 
 class ACCleaningScreen extends StatefulWidget {
   const ACCleaningScreen({super.key});
@@ -10,8 +11,8 @@ class _ACCleaningState extends State<ACCleaningScreen> {
   int _units = 1;
   String _type = 'split';
   bool _deepCoil = false, _drainCheck = false;
-  final _typePx = {'split':599,'window':499,'cassette':799,'central':999};
-  int get _total => (_typePx[_type]! * _units) + (_deepCoil?200*_units:0) + (_drainCheck?150*_units:0);
+  int _p(String key) => ServicePriceService().getPrice('SVC005', key);
+  int get _total => (_p(_type) * _units) + (_deepCoil?_p('addon_deepcoil')*_units:0) + (_drainCheck?_p('addon_drain')*_units:0);
   List<String> get _summary => [
     'AC Cleaning > $_units ${_tl(_type)} AC${_units>1?"s":""}',
     if (_deepCoil) 'AC Cleaning > Deep Coil Wash +₹${200*_units}',

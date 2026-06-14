@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../utils/theme.dart';
 import 'service_widgets.dart';
+import '../../services/service_price_service.dart';
 
 class ACRepairScreen extends StatefulWidget {
   const ACRepairScreen({super.key});
@@ -9,9 +10,9 @@ class ACRepairScreen extends StatefulWidget {
 class _ACRepairState extends State<ACRepairScreen> {
   String _issue = 'notcooling';
   String _type = 'split';
-  final _issuePx = {'notcooling':599,'gasleak':1499,'noise':699,'notstart':799,'remote':299,'pcb':1299};
-  final _typePx = {'split':0,'window':-100,'cassette':200,'central':400};
-  int get _total => (_issuePx[_issue]! + _typePx[_type]!).clamp(299,9999);
+  int _p(String key) => ServicePriceService().getPrice('SVC006', key);
+  // type add handled via key combo
+  int get _total => _p('${_issue}_${_type}') > 0 ? _p('${_issue}_${_type}') : _p('${_issue}_split').clamp(299,9999);
   List<String> get _summary => ['AC Repair > ${_tl(_type)} > ${_il(_issue)}'];
   String _tl(String k) => {'split':'Split','window':'Window','cassette':'Cassette','central':'Central'}[k]!;
   String _il(String k) => {'notcooling':'Not Cooling','gasleak':'Gas Leak/Refill','noise':'Noise Issue','notstart':'Not Starting','remote':'Remote Issue','pcb':'PCB Board'}[k]!;

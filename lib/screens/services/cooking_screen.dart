@@ -50,7 +50,7 @@ class _CookingState extends State<CookingScreen> {
           const SizedBox(width:10),
           Expanded(child: GestureDetector(onTap:()=>setState(()=>_veg=false),
             child: Container(padding:const EdgeInsets.all(12),
-              decoration:BoxDecoration(color:!_veg?AppColors.redSoft:Colors.white,
+              decoration:BoxDecoration(color:!_veg?const Color(0xFFFEE2E2):Colors.white,
                 border:Border.all(color:!_veg?AppColors.red:AppColors.line),
                 borderRadius:BorderRadius.circular(10)),
               child:const Row(mainAxisAlignment:MainAxisAlignment.center,children:[

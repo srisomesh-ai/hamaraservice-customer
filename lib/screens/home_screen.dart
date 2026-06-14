@@ -228,7 +228,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             child: GestureDetector(
               onTap: () => Navigator.push(context,
                 MaterialPageRoute(builder: (_) => const LocationScreen()))
-                .then((_) => _loadCity()),
+                .then((_) => _loadAndUpdateCity()),
               child: Row(
                 children: [
                   const Icon(Icons.location_on_rounded, color: AppColors.brand, size: 20),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../utils/theme.dart';
 import 'service_widgets.dart';
+import '../../services/service_price_service.dart';
 
 class PestControlScreen extends StatefulWidget {
   const PestControlScreen({super.key});
@@ -9,8 +10,8 @@ class PestControlScreen extends StatefulWidget {
 class _PestControlState extends State<PestControlScreen> {
   String _bhk = '2bhk';
   bool _ants = false, _lizard = false, _mosquito = false, _bedbugs = false;
-  final _px = {'studio':599,'1bhk':799,'2bhk':999,'3bhk':1299,'4bhk':1599,'villa':2499};
-  int get _total => _px[_bhk]! + (_ants?200:0) + (_lizard?150:0) + (_mosquito?250:0) + (_bedbugs?499:0);
+  int _p(String key) => ServicePriceService().getPrice('SVC023', key);
+  int get _total => _p(_bhk) + (_ants?_p('addon_ants'):0) + (_lizard?_p('addon_lizard'):0) + (_mosquito?_p('addon_mosquito'):0) + (_bedbugs?_p('addon_bedbugs'):0);
   List<String> get _summary => [
     'Pest Control > Cockroach Control > ${_bl(_bhk)}',
     if (_ants) 'Pest Control > Ant Treatment +₹200',

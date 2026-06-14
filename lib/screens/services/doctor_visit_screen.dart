@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../utils/theme.dart';
 import 'service_widgets.dart';
+import '../../services/service_price_service.dart';
 
 class DoctorVisitScreen extends StatefulWidget {
   const DoctorVisitScreen({super.key});
@@ -10,8 +11,8 @@ class _DoctorVisitState extends State<DoctorVisitScreen> {
   String _type = 'gp';
   int _patients = 1;
   bool _prescription = false, _report = false;
-  final _typePx = {'gp':699,'pediatric':799,'senior':799,'specialist':999};
-  int get _total => (_typePx[_type]! * _patients) + (_prescription?0:0) + (_report?199:0);
+  int _p(String key) => ServicePriceService().getPrice('SVC010', key);
+  int get _total => (_p(_type) * _patients) + (_report?_p('addon_report'):0);
   List<String> get _summary => [
     'Doctor Visit > $_patients ${_tl(_type)} Consultation',
     if (_report) 'Doctor > Medical Report Writing +₹199',

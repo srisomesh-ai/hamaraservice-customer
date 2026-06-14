@@ -44,7 +44,7 @@ class _FullDayCookState extends State<FullDayCookScreen> {
           const SizedBox(width:10),
           Expanded(child:GestureDetector(onTap:()=>setState(()=>_veg=false),
             child:Container(padding:const EdgeInsets.all(12),
-              decoration:BoxDecoration(color:!_veg?AppColors.redSoft:Colors.white,
+              decoration:BoxDecoration(color:!_veg?const Color(0xFFFEE2E2):Colors.white,
                 border:Border.all(color:!_veg?AppColors.red:AppColors.line),borderRadius:BorderRadius.circular(10)),
               child:const Row(mainAxisAlignment:MainAxisAlignment.center,children:[Text('🍗',style:TextStyle(fontSize:20)),SizedBox(width:8),Text('Non-Veg',style:TextStyle(fontWeight:FontWeight.w700))])))),
         ]),

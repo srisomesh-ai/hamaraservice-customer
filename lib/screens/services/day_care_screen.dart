@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../utils/theme.dart';
 import 'service_widgets.dart';
+import '../../services/service_price_service.dart';
 
 class DayCareScreen extends StatefulWidget {
   const DayCareScreen({super.key});
@@ -10,9 +11,8 @@ class _DayCareState extends State<DayCareScreen> {
   int _hours = 2;
   int _children = 1;
   String _type = 'general';
-  final _typePx = {'general':200,'homework':250,'activity':280,'overnight':1500};
-  int get _total => _type == 'overnight' ? _typePx[_type]! * _children
-    : _typePx[_type]! * _hours * _children;
+  int _p(String key) => ServicePriceService().getPrice('SVC016', key);
+  int get _total => _type == 'overnight' ? _p('overnight') * _children : _p('${_type}_per_hr') * _hours * _children;
   List<String> get _summary => [
     'Day Care > $_children child${_children>1?"ren":""} · ${_type=="overnight"?"Overnight":"$_hours hrs"} · ${_tl(_type)}',
   ];

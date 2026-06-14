@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_database/firebase_database.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:geocoding/geocoding.dart';
 import '../utils/theme.dart';
 import 'login_screen.dart';
 import 'location_screen.dart';
@@ -98,12 +102,65 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     super.initState();
     _user = FirebaseAuth.instance.currentUser;
     _bookingTabCtrl = TabController(length: 3, vsync: this);
-    _loadCity();
+    _loadAndUpdateCity();
   }
 
-  Future<void> _loadCity() async {
+  Future<void> _loadAndUpdateCity() async {
+    // 1. Show saved city immediately
     final prefs = await SharedPreferences.getInstance();
-    setState(() => _city = prefs.getString('user_city') ?? 'Your City');
+    final savedCity = prefs.getString('user_city') ?? '';
+    if (savedCity.isNotEmpty && mounted) {
+      setState(() => _city = savedCity);
+    }
+    // 2. Also load from Firebase
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid != null) {
+      try {
+        final snap = await FirebaseDatabase.instance.ref('customers/$uid').get();
+        if (snap.exists) {
+          final data = Map<String, dynamic>.from(snap.value as Map);
+          final city = data['city']?.toString() ?? '';
+          if (city.isNotEmpty && mounted) {
+            setState(() => _city = city);
+            await prefs.setString('user_city', city);
+          }
+        }
+      } catch (_) {}
+    }
+    // 3. Silently refresh GPS in background
+    _refreshGPSLocation();
+  }
+
+  Future<void> _refreshGPSLocation() async {
+    try {
+      final permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) return;
+      final pos = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.medium);
+      String city = '';
+      try {
+        final placemarks = await placemarkFromCoordinates(pos.latitude, pos.longitude);
+        if (placemarks.isNotEmpty) {
+          city = placemarks.first.locality ??
+              placemarks.first.subAdministrativeArea ?? '';
+        }
+      } catch (_) {}
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid != null) {
+        await FirebaseDatabase.instance.ref('customers/$uid').update({
+          'lat': pos.latitude,
+          'lng': pos.longitude,
+          if (city.isNotEmpty) 'city': city,
+        });
+      }
+      if (city.isNotEmpty && mounted) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('user_city', city);
+        setState(() => _city = city);
+        HapticFeedback.selectionClick();
+      }
+    } catch (_) {}
   }
 
   @override

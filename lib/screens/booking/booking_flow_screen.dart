@@ -67,15 +67,20 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
       final lng = (data['lng'] as num?)?.toDouble();
       final savedAddress = data['address']?.toString() ?? '';
       final city = data['city']?.toString() ?? '';
-      if (lat != null && lng != null && lat != 0 && lng != 0) {
-        setState(() {
+      setState(() {
+        if (lat != null && lng != null && lat != 0 && lng != 0) {
           _customerLat = lat;
           _customerLng = lng;
-          if (_addressCtrl.text.isEmpty) {
-            _addressCtrl.text = savedAddress.isNotEmpty ? savedAddress : city;
+        }
+        // Pre-fill address from saved address or city — user can edit if needed
+        if (_addressCtrl.text.isEmpty) {
+          if (savedAddress.isNotEmpty) {
+            _addressCtrl.text = savedAddress;
+          } else if (city.isNotEmpty) {
+            _addressCtrl.text = city;
           }
-        });
-      }
+        }
+      });
     } catch (e) {}
   }
 
@@ -243,43 +248,39 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
       const Text('Where should the provider come?', style: TextStyle(fontSize: 13, color: AppColors.muted)),
       const SizedBox(height: 14),
 
-      // GPS detect button
-      GestureDetector(
-        onTap: null, // Location already saved at login
-        child: Container(padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: _customerLat != null ? AppColors.greenSoft : AppColors.tealSoft,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: _customerLat != null ? AppColors.green : AppColors.teal)),
-          child: Row(children: [
-            _detectingLocation
-                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.teal))
-                : Icon(_customerLat != null ? Icons.location_on_rounded : Icons.my_location_rounded,
-                    color: _customerLat != null ? AppColors.green : AppColors.teal, size: 20),
-            const SizedBox(width: 10),
-            Expanded(child: Text(
-              _customerLat != null ? 'Location saved from login ✓' : 'Location not available',
-              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600,
-                color: _customerLat != null ? AppColors.green : AppColors.teal))),
-            // Map view button
-            if (_customerLat != null && !_detectingLocation)
-              GestureDetector(
-                onTap: _openMapView,
-                child: Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  decoration: BoxDecoration(color: AppColors.green.withOpacity(0.15), borderRadius: BorderRadius.circular(8)),
-                  child: const Row(mainAxisSize: MainAxisSize.min, children: [
-                    Icon(Icons.map_rounded, color: AppColors.green, size: 14),
-                    SizedBox(width: 4),
-                    Text('View', style: TextStyle(fontSize: 12, color: AppColors.green, fontWeight: FontWeight.w700)),
-                  ]))),
-          ])),
-      ),
+      // Location status — no re-fetch, just show saved status
+      Container(padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: _customerLat != null ? AppColors.greenSoft : AppColors.yellow.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: _customerLat != null ? AppColors.green : AppColors.yellow)),
+        child: Row(children: [
+          Icon(_customerLat != null ? Icons.location_on_rounded : Icons.location_off_rounded,
+              color: _customerLat != null ? AppColors.green : AppColors.yellow, size: 20),
+          const SizedBox(width: 10),
+          Expanded(child: Text(
+            _customerLat != null ? 'GPS location loaded ✓' : 'Location not set — go to Home to enable',
+            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600,
+              color: _customerLat != null ? AppColors.green : AppColors.yellow))),
+          if (_customerLat != null)
+            GestureDetector(
+              onTap: _openMapView,
+              child: Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(color: AppColors.green.withOpacity(0.15), borderRadius: BorderRadius.circular(8)),
+                child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(Icons.map_rounded, color: AppColors.green, size: 14),
+                  SizedBox(width: 4),
+                  Text('View', style: TextStyle(fontSize: 12, color: AppColors.green, fontWeight: FontWeight.w700)),
+                ]))),
+        ])),
 
       const SizedBox(height: 14),
       _label('FULL ADDRESS *'),
       const SizedBox(height: 6),
       TextField(controller: _addressCtrl, maxLines: 3,
-        decoration: InputDecoration(hintText: 'House no, Street, Area, City',
+        decoration: InputDecoration(
+          hintText: 'House no, Street, Area, City',
+          helperText: 'Edit if needed',
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)))),
 
       const SizedBox(height: 14),
@@ -299,19 +300,36 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
 
       const SizedBox(height: 20),
       const Text('Your Contact Details', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.ink)),
+      const SizedBox(height: 4),
+      const Text('Pre-filled from your profile', style: TextStyle(fontSize: 12, color: AppColors.muted)),
       const SizedBox(height: 12),
-      _label('FULL NAME *'),
+
+      // Name — read only with edit icon
+      _label('FULL NAME'),
       const SizedBox(height: 6),
-      TextField(controller: _nameCtrl,
-        decoration: InputDecoration(hintText: 'Your name',
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)))),
+      TextField(
+        controller: _nameCtrl,
+        decoration: InputDecoration(
+          hintText: 'Your name',
+          prefixIcon: const Icon(Icons.person_rounded, color: AppColors.teal, size: 18),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+          filled: true,
+          fillColor: AppColors.bg)),
+
       const SizedBox(height: 14),
-      _label('MOBILE NUMBER *'),
+      _label('MOBILE NUMBER'),
       const SizedBox(height: 6),
-      TextField(controller: _phoneCtrl, keyboardType: TextInputType.phone, maxLength: 10,
-        decoration: InputDecoration(hintText: '10-digit mobile number',
+      TextField(
+        controller: _phoneCtrl,
+        keyboardType: TextInputType.phone,
+        maxLength: 10,
+        decoration: InputDecoration(
+          hintText: '10-digit mobile number',
           counterText: '',
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)))),
+          prefixIcon: const Icon(Icons.phone_rounded, color: AppColors.teal, size: 18),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+          filled: true,
+          fillColor: AppColors.bg)),
     ]);
   }
 

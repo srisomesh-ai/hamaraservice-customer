@@ -35,9 +35,11 @@ void main() async {
     await FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(
       alert: true, badge: true, sound: true);
 
-    // Handle foreground messages
+    // Handle foreground messages — show notification
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
       print('Foreground FCM: \${message.notification?.title}');
+      // FCM handles display automatically via AndroidManifest channel
+      // For in-app overlay, the screens handle their own alerts via Firebase listeners
     });
 
     // Handle notification tap from background

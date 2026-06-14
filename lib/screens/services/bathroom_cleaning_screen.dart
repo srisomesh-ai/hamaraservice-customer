@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../utils/theme.dart';
 import 'service_widgets.dart';
+import '../../services/service_price_service.dart';
 
 class BathroomCleaningScreen extends StatefulWidget {
   const BathroomCleaningScreen({super.key});
@@ -9,8 +10,9 @@ class BathroomCleaningScreen extends StatefulWidget {
 class _BathroomCleaningState extends State<BathroomCleaningScreen> {
   int _count = 1;
   bool _deep = false, _exhaust = false, _tank = false;
-  int get _basePrice => [0,399,699,999,1299][_count];
-  int get _total => _basePrice + (_deep?200:0) + (_exhaust?150:0) + (_tank?299:0);
+  int _p(String key) => ServicePriceService().getPrice('SVC003', key);
+  int get _basePrice => _p('count_\$_count');
+  int get _total => _basePrice + (_deep?_p('addon_deep'):0) + (_exhaust?_p('addon_exhaust'):0) + (_tank?_p('addon_tank'):0);
   List<String> get _summary => [
     'Bathroom Cleaning > $_count Bathroom${_count>1?"s":""}',
     if (_deep) 'Bathroom > Deep Scrub +₹200',

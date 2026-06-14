@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../utils/theme.dart';
 import 'service_widgets.dart';
+import '../../services/service_price_service.dart';
 
 class ElderCareScreen extends StatefulWidget {
   const ElderCareScreen({super.key});
@@ -9,9 +10,9 @@ class ElderCareScreen extends StatefulWidget {
 class _ElderCareState extends State<ElderCareScreen> {
   String _shift = 'half';
   String _type = 'companion';
-  final _shiftPx = {'half':499,'full':899,'night':799,'24hr':1499};
-  final _typeAdd = {'companion':0,'medical':200,'physio':300,'alzheimer':400};
-  int get _total => _shiftPx[_shift]! + _typeAdd[_type]!;
+  int _p(String key) => ServicePriceService().getPrice('SVC017', key);
+
+  int get _total => _p('${_shift}_${_type}') > 0 ? _p('${_shift}_${_type}') : _p('${_shift}_companion');
   List<String> get _summary => ['Elder Care > ${_sl(_shift)} · ${_tl(_type)}'];
   String _sl(String k) => {'half':'Half Day (4hrs)','full':'Full Day (8hrs)','night':'Night Shift','24hr':'24 Hours'}[k]!;
   String _tl(String k) => {'companion':'Companionship','medical':'Medical Assistance','physio':'Physiotherapy Support','alzheimer':'Alzheimer/Dementia Care'}[k]!;

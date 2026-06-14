@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../utils/theme.dart';
 import 'service_widgets.dart';
+import '../../services/service_price_service.dart';
 
 class HaircutWomenScreen extends StatefulWidget {
   const HaircutWomenScreen({super.key});
@@ -9,8 +10,8 @@ class HaircutWomenScreen extends StatefulWidget {
 class _HaircutWomenState extends State<HaircutWomenScreen> {
   String _service = 'cut';
   bool _conditioning = false, _oilMassage = false;
-  final _svcPx = {'cut':349,'blowdry':249,'wash':199,'trim':199,'treatment':599,'coloring':799};
-  int get _total => _svcPx[_service]! + (_conditioning?199:0) + (_oilMassage?149:0);
+  int _p(String key) => ServicePriceService().getPrice('SVC014', key);
+  int get _total => _p(_service) + (_conditioning?_p('addon_conditioning'):0) + (_oilMassage?_p('addon_oilmassage'):0);
   List<String> get _summary => [
     'Haircut (Women) > ${_sl(_service)}',
     if (_conditioning) 'Hair > Deep Conditioning +₹199',

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../utils/theme.dart';
 import 'service_widgets.dart';
+import '../../services/service_price_service.dart';
 
 class WashingMachineRepairScreen extends StatefulWidget {
   const WashingMachineRepairScreen({super.key});
@@ -9,9 +10,9 @@ class WashingMachineRepairScreen extends StatefulWidget {
 class _WashingMachineRepairState extends State<WashingMachineRepairScreen> {
   String _type = 'front';
   String _issue = 'notstart';
-  final _typePx = {'front':549,'top':449,'semi':349};
-  final _issuePx = {'notstart':0,'noise':100,'leak':150,'notdrain':100,'drum':200,'motor':300,'panel':400};
-  int get _total => _typePx[_type]! + _issuePx[_issue]!;
+  int _p(String key) => ServicePriceService().getPrice('SVC007', key);
+
+  int get _total => _p('${_type}_base') + (_issue=='notstart'?0:_p('addon_${_issue}'));
   List<String> get _summary => ['Washing Machine Repair > ${_tl(_type)} > ${_il(_issue)}'];
   String _tl(String k) => {'front':'Front Load','top':'Top Load','semi':'Semi-Auto'}[k]!;
   String _il(String k) => {'notstart':'Not Starting','noise':'Noise/Vibration','leak':'Water Leak','notdrain':'Not Draining','drum':'Drum Issue','motor':'Motor Fault','panel':'Control Panel'}[k]!;

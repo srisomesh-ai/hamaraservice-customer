@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../utils/theme.dart';
 import '../booking/booking_flow_screen.dart';
+import '../../services/service_price_service.dart';
 
 class HouseMaidScreen extends StatefulWidget {
   const HouseMaidScreen({super.key});
@@ -21,19 +22,20 @@ class _HouseMaidScreenState extends State<HouseMaidScreen> {
   int _adultPairs = 10;
   int _kidsPairs = 10;
 
-  final Map<String, int> _sweepPx = {'1bhk':149,'2bhk':249,'3bhk':349,'4bhk':449,'villa':599,'studio':99};
-  final Map<String, int> _dustPx  = {'1bhk':199,'2bhk':329,'3bhk':449,'4bhk':579,'villa':749,'studio':149};
-  final Map<String, int> _dishPx  = {'daily':149,'people':249,'event':499,'marriage':999};
+  int _p(String key) => ServicePriceService().getPrice('SVC001', key);
+  Map<String, int> get _sweepPx => {'1bhk':_p('sweep_1bhk'),'2bhk':_p('sweep_2bhk'),'3bhk':_p('sweep_3bhk'),'4bhk':_p('sweep_4bhk'),'villa':_p('sweep_villa'),'studio':_p('sweep_studio')};
+  Map<String, int> get _dustPx  => {'1bhk':_p('dust_1bhk'),'2bhk':_p('dust_2bhk'),'3bhk':_p('dust_3bhk'),'4bhk':_p('dust_4bhk'),'villa':_p('dust_villa'),'studio':_p('dust_studio')};
+  Map<String, int> get _dishPx  => {'daily':_p('dishes_daily'),'people':_p('dishes_people'),'event':_p('dishes_event'),'marriage':_p('dishes_marriage')};
 
   int get _total {
     int t = 0;
     if (_sweep && !_dust) t += _sweepPx[_sweepBhk]!;
     if (_dust) t += _dustPx[_dustBhk]!;
     if (_dishes) t += _dishPx[_dishOcc]!;
-    if (_clothes) t += 99;
+    if (_clothes) t += _p('clothes');
     if (_laundry) {
       final p = _adultPairs + _kidsPairs;
-      t += p <= 10 ? 400 : 400 + ((p - 10) * 30);
+      t += p <= 10 ? _p('laundry_base') : _p('laundry_base') + ((p - 10) * _p('laundry_per_extra_pair'));
     }
     return t;
   }

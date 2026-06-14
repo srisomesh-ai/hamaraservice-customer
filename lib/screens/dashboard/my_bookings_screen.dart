@@ -106,9 +106,13 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
   }
 
   void _showProviderAcceptedAlert(String name, String phone, String service) async {
-    // Play sound + vibrate
-    SystemSound.play(SystemSoundType.alert);
+    // Vibrate + sound
+    try {
+      final hasVib = await Vibration.hasVibrator() ?? false;
+      if (hasVib) Vibration.vibrate(pattern: [0, 400, 200, 400, 200, 400]);
+    } catch (_) {}
     HapticFeedback.heavyImpact();
+    SystemSound.play(SystemSoundType.alert);
     if (mounted) {
       setState(() {
         _showAcceptedAlert = true;

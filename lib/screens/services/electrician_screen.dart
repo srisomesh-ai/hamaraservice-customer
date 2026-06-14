@@ -9,10 +9,10 @@ class ElectricianScreen extends StatefulWidget {
 }
 class _ElectricianState extends State<ElectricianScreen> {
   final Set<String> _issues = {};
-  final _px = {'switch':399,'fan':399,'wiring':599,'mcb':499,'socket':399,'short':699,'light':299,'exhaust':349};
+  int _p(String key) => ServicePriceService().getPrice('SVC020', key);
   int _getTotal() {
     if (_issues.isEmpty) return _p('switch');
-    return _issues.fold(0,(s,k)=>s+_p(k));
+    return _issues.fold<int>(0,(s,k)=>s+_p(k));
   }
   int get _total => _getTotal();
   bool get _any => _issues.isNotEmpty;

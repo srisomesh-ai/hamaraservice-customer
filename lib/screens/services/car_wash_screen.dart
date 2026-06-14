@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../utils/theme.dart';
 import 'service_widgets.dart';
+import '../../services/service_price_service.dart';
 
 class CarWashScreen extends StatefulWidget {
   const CarWashScreen({super.key});
@@ -10,8 +11,8 @@ class _CarWashState extends State<CarWashScreen> {
   String _pkg = 'basic';
   int _cars = 1;
   bool _engine = false, _polish = false, _interior = false;
-  final _pkgPx = {'basic':299,'standard':499,'premium':799,'suv':999};
-  int get _total => (_pkgPx[_pkg]! * _cars) + (_engine?499:0) + (_polish?399:0) + (_interior?299:0);
+  int _p(String key) => ServicePriceService().getPrice('SVC008', key);
+  int get _total => (_p(_pkg) * _cars) + (_engine?_p('addon_engine'):0) + (_polish?_p('addon_polish'):0) + (_interior?_p('addon_interior'):0);
   List<String> get _summary => [
     'Car Wash > $_cars ${_pl(_pkg)} Wash${_cars>1?"es":""}',
     if (_engine) 'Car Wash > Engine Bay Cleaning +₹499',

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../utils/theme.dart';
 import 'service_widgets.dart';
+import '../../services/service_price_service.dart';
 
 class FullDayCookScreen extends StatefulWidget {
   const FullDayCookScreen({super.key});
@@ -12,8 +13,9 @@ class _FullDayCookState extends State<FullDayCookScreen> {
   bool _veg = true;
   bool _cleaning = true;
   bool _special = false;
-  int get _base => _persons <= 4 ? 799 : 799 + ((_persons-4)*100);
-  int get _total => (_base * _days) + (_special?300*_days:0);
+  int _p(String key) => ServicePriceService().getPrice('SVC019', key);
+  int get _base => _persons <= 4 ? _p('base_4persons') : _p('base_4persons') + ((_persons-4)*_p('extra_person'));
+  int get _total => (_base * _days) + (_special?_p('addon_special')*_days:0);
   List<String> get _summary => [
     'Full-Day Cook > $_days day${_days>1?"s":""} · $_persons persons · ${_veg?"Veg":"Non-Veg"}',
     'Full-Day Cook > All 3 meals${_cleaning?" + Kitchen Clean":""}',

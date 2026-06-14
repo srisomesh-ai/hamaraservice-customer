@@ -17,6 +17,7 @@ class AppColors {
   static const greenSoft = Color(0xFFE8F8F0);
   static const yellow    = Color(0xFFF59E0B);
   static const red       = Color(0xFFE53E3E);
+  static const redSoft   = Color(0xFFFEE2E2);
 }
 
 class AppTheme {

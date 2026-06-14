@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'services/service_price_service.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:geolocator/geolocator.dart';
@@ -54,6 +55,8 @@ void main() async {
     }
 
     // Save FCM token + location on login (any method — Google, phone etc)
+    // Load service prices from Firebase (admin-controlled)
+    ServicePriceService().loadPrices();
     FirebaseAuth.instance.authStateChanges().listen((user) async {
       if (user != null) {
         try {

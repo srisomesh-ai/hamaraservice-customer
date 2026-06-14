@@ -54,7 +54,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
         return;
       }
       final all = Map<String, dynamic>.from(event.snapshot.value as Map);
-      final activeStatuses = ['confirmed','searching','accepted','active','pending','otp_sent'];
+      final activeStatuses = ['confirmed','searching','accepted','active','pending','otp_sent','payment_pending'];
       final mine = all.entries
           .where((e) {
             final b = e.value as Map;
@@ -72,6 +72,8 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
         if (['active','otp_sent','accepted'].contains(b['status'])) {
           _watchOTP(id, b['service'] ?? '');
         }
+        // Watch acceptance for searching/pending
+        // payment_pending is already handled by Pay Now button
         // Watch for acceptance
         if (b['status'] == 'searching' || b['status'] == 'pending') {
           _watchAcceptance(id, b);
@@ -340,6 +342,36 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
                   style: TextStyle(fontSize: 12, color: AppColors.brand, fontWeight: FontWeight.w600))),
               ])),
           ],
+          // Payment pending — show Pay Now button
+          if (status == 'payment_pending') ...[
+            const SizedBox(height: 10),
+            Container(padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(color: AppColors.yellow.withOpacity(0.08),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppColors.yellow.withOpacity(0.4))),
+              child: const Row(children: [
+                Icon(Icons.hourglass_top_rounded, color: AppColors.yellow, size: 16),
+                SizedBox(width: 8),
+                Expanded(child: Text('Service completed! Please complete your payment.',
+                  style: TextStyle(fontSize: 12, color: AppColors.ink2, fontWeight: FontWeight.w600))),
+              ])),
+            const SizedBox(height: 8),
+            SizedBox(width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () {
+                  HapticFeedback.mediumImpact();
+                  Navigator.push(context, MaterialPageRoute(
+                    builder: (_) => PaymentScreen(bookingId: b['id'], booking: b)));
+                },
+                icon: const Icon(Icons.payment_rounded, color: Colors.white, size: 18),
+                label: Text('Pay Rs.\${b['price'] ?? b['priceVal'] ?? 0} Now',
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Colors.white)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFE8251A),
+                  minimumSize: const Size(double.infinity, 48),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))))),
+          ],
+
           if (canCancel) ...[
             const SizedBox(height: 10),
             SizedBox(width: double.infinity,
@@ -479,6 +511,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
       case 'searching': case 'pending': return AppColors.yellow;
       case 'accepted': return AppColors.green;
       case 'active': case 'otp_sent': return AppColors.brand;
+      case 'payment_pending': return AppColors.yellow;
       default: return AppColors.muted;
     }
   }
@@ -491,6 +524,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
       case 'accepted': return 'Provider Assigned';
       case 'active': return 'In Progress';
       case 'otp_sent': return 'Completing';
+      case 'payment_pending': return '⏳ Payment Pending';
       default: return s;
     }
   }

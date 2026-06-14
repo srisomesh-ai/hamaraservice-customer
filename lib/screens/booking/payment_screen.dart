@@ -24,8 +24,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
   late Razorpay _razorpay;
 
   // Firebase Cloud Functions — no Hostinger dependency
-  static const String _apiBase = 'https://hamaraservice.com/api'; // fallback
-  static const String _fbFunctions = '$FB_FUNCTIONS_BASE';
+  static const String _fbFunctions = 'https://asia-southeast1-hamaraservice-s009.cloudfunctions.net';
 
   @override
   void initState() {

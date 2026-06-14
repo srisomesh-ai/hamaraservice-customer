@@ -81,6 +81,23 @@ class _PaymentScreenState extends State<PaymentScreen> {
           });
         }
       }
+      // Push notification to provider — payment received
+      try {
+        final provId = widget.booking['providerId']?.toString() ?? '';
+        if (provId.isNotEmpty) {
+          final provTokenSnap = await FirebaseDatabase.instance
+              .ref('providers/$provId/fcmToken').get();
+          final provToken = provTokenSnap.value?.toString() ?? '';
+          if (provToken.isNotEmpty) {
+            final svcName = widget.booking['service']?.toString() ?? '';
+            await http.post(
+              Uri.parse('https://hamaraservice.com/api/notify_booking.php'),
+              headers: {'Content-Type': 'application/json'},
+              body: '{"event":"payment_received","fcmToken":"$provToken","data":{"amount":"$_totalAmount","service":"$svcName","bookingId":"${widget.bookingId}"}}',
+            );
+          }
+        }
+      } catch (_) {}
       // Server verify (non-blocking)
       _verifyServer(r, uid);
       HapticFeedback.heavyImpact();

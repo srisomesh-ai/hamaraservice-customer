@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../utils/theme.dart';
 import 'service_widgets.dart';
+import '../../services/service_price_service.dart';
 
 class MassageScreen extends StatefulWidget {
   const MassageScreen({super.key});
@@ -10,9 +11,9 @@ class _MassageState extends State<MassageScreen> {
   String _type = 'relaxation';
   String _duration = '60';
   int _persons = 1;
-  final _typePx = {'relaxation':999,'deep':1299,'swedish':1499,'ayurvedic':1199,'foot':499,'head':399};
-  final _durMult = {'45':0.85,'60':1.0,'90':1.4,'120':1.8};
-  int get _total => (_typePx[_type]! * _durMult[_duration]! * _persons).round();
+  int _p(String key) => ServicePriceService().getPrice('SVC015', key);
+
+  int get _total => (_p('${_type}_${_duration}') > 0 ? _p('${_type}_${_duration}') : _p('${_type}_60') * (1.0)).round() * _persons;
   List<String> get _summary => [
     'Massage > $_persons × ${_tl(_type)} · ${_duration}min',
   ];

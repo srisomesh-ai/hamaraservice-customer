@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../utils/theme.dart';
 import 'service_widgets.dart';
+import '../../services/service_price_service.dart';
 
 class PaintingScreen extends StatefulWidget {
   const PaintingScreen({super.key});
@@ -11,14 +12,10 @@ class _PaintingState extends State<PaintingScreen> {
   String _finish = 'emulsion';
   int _rooms = 1;
   bool _ceiling = false, _putty = false, _primer = false;
-  final _scopePx = {'room':1499,'2bhk':3999,'3bhk':5499,'full':7999,'exterior':4999};
-  final _finishAdd = {'emulsion':0,'premium':800,'texture':1500,'weather':1200};
+  int _p(String key) => ServicePriceService().getPrice('SVC025', key);
+
   int get _roomsMultiplier => _scope == 'room' ? _rooms : 1;
-  int get _total => (_scopePx[_scope]! * _roomsMultiplier) +
-    _finishAdd[_finish]! +
-    (_ceiling ? 500 * _roomsMultiplier : 0) +
-    (_putty ? 800 * _roomsMultiplier : 0) +
-    (_primer ? 400 * _roomsMultiplier : 0);
+  int get _total => (_p(_scope) * _roomsMultiplier) + (_finish=='emulsion'?0:_p('finish_${_finish}')) + (_ceiling?_p('addon_ceiling')*_roomsMultiplier:0) + (_putty?_p('addon_putty')*_roomsMultiplier:0) + (_primer?_p('addon_primer')*_roomsMultiplier:0);
   List<String> get _summary => [
     'Painting > ${_sl(_scope)}${_scope=="room"?" × $_rooms rooms":""}',
     'Painting > ${_fl(_finish)} finish',

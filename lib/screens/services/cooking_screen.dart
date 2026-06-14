@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../utils/theme.dart';
 import 'service_widgets.dart';
+import '../../services/service_price_service.dart';
 
 class CookingScreen extends StatefulWidget {
   const CookingScreen({super.key});
@@ -11,9 +12,9 @@ class _CookingState extends State<CookingScreen> {
   int _persons = 2;
   bool _veg = true;
   bool _dishes = false;
-  final _mealPx = {'breakfast':199,'lunch':299,'dinner':299,'tiffin':149};
-  int get _personsAdd => _persons <= 2 ? 0 : (_persons - 2) * 50;
-  int get _total => _mealPx[_meal]! + _personsAdd + (_dishes ? 99 : 0);
+  int _p(String key) => ServicePriceService().getPrice('SVC018', key);
+  int get _personsAdd => _persons <= 2 ? 0 : (_persons - 2) * _p('extra_person');
+  int get _total => _p(_meal) + _personsAdd + (_dishes ? _p('addon_dishes') : 0);
   List<String> get _summary => [
     'Cooking > ${_ml(_meal)} for $_persons · ${_veg?"Veg":"Non-Veg"}',
     if (_dishes) 'Cooking > Dishwashing After +₹99',

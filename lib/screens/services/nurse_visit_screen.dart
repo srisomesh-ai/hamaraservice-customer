@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../utils/theme.dart';
 import 'service_widgets.dart';
+import '../../services/service_price_service.dart';
 
 class NurseVisitScreen extends StatefulWidget {
   const NurseVisitScreen({super.key});
@@ -9,8 +10,8 @@ class NurseVisitScreen extends StatefulWidget {
 class _NurseVisitState extends State<NurseVisitScreen> {
   String _service = 'injection';
   int _days = 1;
-  final _svcPx = {'injection':399,'dressing':499,'iv':799,'catheter':699,'vitals':299,'icu':1499};
-  int get _total => _svcPx[_service]! * _days;
+  int _p(String key) => ServicePriceService().getPrice('SVC012', key);
+  int get _total => _p(_service) * _days;
   List<String> get _summary => ['Nurse Visit > ${_sl(_service)} × $_days day${_days>1?"s":""}'];
   String _sl(String k) => {'injection':'Injection','dressing':'Wound Dressing','iv':'IV Drip','catheter':'Catheter Care','vitals':'Vitals Monitoring','icu':'ICU-Level Care'}[k]!;
   @override

@@ -11,6 +11,30 @@ import 'login_screen.dart';
 import 'location_screen.dart';
 import 'booking/service_detail_screen.dart';
 import 'services/house_maid_screen.dart';
+import 'services/deep_cleaning_screen.dart';
+import 'services/bathroom_cleaning_screen.dart';
+import 'services/kitchen_cleaning_screen.dart';
+import 'services/ac_cleaning_screen.dart';
+import 'services/ac_repair_screen.dart';
+import 'services/washing_machine_repair_screen.dart';
+import 'services/car_wash_screen.dart';
+import 'services/bike_wash_screen.dart';
+import 'services/doctor_visit_screen.dart';
+import 'services/lab_test_screen.dart';
+import 'services/nurse_visit_screen.dart';
+import 'services/haircut_men_screen.dart';
+import 'services/haircut_women_screen.dart';
+import 'services/massage_screen.dart';
+import 'services/day_care_screen.dart';
+import 'services/elder_care_screen.dart';
+import 'services/cooking_screen.dart';
+import 'services/full_day_cook_screen.dart';
+import 'services/electrician_screen.dart';
+import 'services/plumber_screen.dart';
+import 'services/carpenter_screen.dart';
+import 'services/pest_control_screen.dart';
+import 'services/termite_screen.dart';
+import 'services/painting_screen.dart';
 import 'dashboard/my_bookings_screen.dart';
 import 'dashboard/booking_history_screen.dart';
 import 'dashboard/profile_screen.dart';
@@ -174,11 +198,40 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   }
 
   void _onServiceTap(Map<String, dynamic> svc) {
-    if (svc['id'] == 'SVC001') {
-      Navigator.push(context, MaterialPageRoute(builder: (_) => const HouseMaidScreen()));
-      return;
+    final id = svc['id'] as String;
+    final screens = <String, Widget>{
+      'SVC001': const HouseMaidScreen(),
+      'SVC002': const DeepCleaningScreen(),
+      'SVC003': const BathroomCleaningScreen(),
+      'SVC004': const KitchenCleaningScreen(),
+      'SVC005': const ACCleaningScreen(),
+      'SVC006': const ACRepairScreen(),
+      'SVC007': const WashingMachineRepairScreen(),
+      'SVC008': const CarWashScreen(),
+      'SVC009': const BikeWashScreen(),
+      'SVC010': const DoctorVisitScreen(),
+      'SVC011': const LabTestScreen(),
+      'SVC012': const NurseVisitScreen(),
+      'SVC013': const HaircutMenScreen(),
+      'SVC014': const HaircutWomenScreen(),
+      'SVC015': const MassageScreen(),
+      'SVC016': const DayCareScreen(),
+      'SVC017': const ElderCareScreen(),
+      'SVC018': const CookingScreen(),
+      'SVC019': const FullDayCookScreen(),
+      'SVC020': const ElectricianScreen(),
+      'SVC021': const PlumberScreen(),
+      'SVC022': const CarpenterScreen(),
+      'SVC023': const PestControlScreen(),
+      'SVC024': const TermiteScreen(),
+      'SVC025': const PaintingScreen(),
+    };
+    final screen = screens[id];
+    if (screen != null) {
+      Navigator.push(context, MaterialPageRoute(builder: (_) => screen));
+    } else {
+      Navigator.push(context, MaterialPageRoute(builder: (_) => ServiceDetailScreen(service: svc)));
     }
-    Navigator.push(context, MaterialPageRoute(builder: (_) => ServiceDetailScreen(service: svc)));
   }
 
 

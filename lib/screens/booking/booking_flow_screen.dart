@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../utils/theme.dart';
@@ -122,7 +123,15 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
     setState(() => _loading = true);
     try {
       final user = FirebaseAuth.instance.currentUser;
+      // Get customer FCM token to include in booking
+      String customerFcmToken = '';
+      try {
+        final token = await FirebaseMessaging.instance.getToken();
+        customerFcmToken = token ?? '';
+      } catch (_) {}
+
       final bookingId = await FirebaseService.createBooking({
+        'customerFcmToken': customerFcmToken,
         'service': widget.service['name'],
         'svcId': widget.service['id'],
         'icon': widget.service['icon'],

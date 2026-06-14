@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../utils/theme.dart';
 import 'service_widgets.dart';
+import '../../services/service_price_service.dart';
 
 class CarpenterScreen extends StatefulWidget {
   const CarpenterScreen({super.key});
@@ -9,7 +10,7 @@ class CarpenterScreen extends StatefulWidget {
 class _CarpenterState extends State<CarpenterScreen> {
   final Set<String> _issues = {};
   final _px = {'furniture':349,'door':449,'window':399,'hinge':299,'lock':349,'shelf':399,'cabinet':549,'bed':499};
-  int get _total => _issues.isEmpty ? 349 : _issues.fold(0,(s,k)=>s+_px[k]!);
+  int get _total => _issues.isEmpty ? _p('furniture') : _issues.fold(0,(s,k)=>s+_p(k));
   List<String> get _summary => [
     if (_issues.isEmpty) 'Carpenter > General Visit',
     ..._issues.map((k)=>'Carpenter > ${_il(k)}'),

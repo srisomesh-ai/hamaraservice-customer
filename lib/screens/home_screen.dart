@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
 import '../utils/theme.dart';
+import 'test_console_screen.dart';
 import 'login_screen.dart';
 import 'location_screen.dart';
 import 'booking/service_detail_screen.dart';
@@ -28,6 +29,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   final _searchCtrl = TextEditingController();
   String _searchQuery = '';
   String _city = 'Your City';
+  int _testTapCount = 0;
+  DateTime? _lastTap;
   User? _user;
   int _selectedCat = 0;
 
@@ -178,6 +181,20 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     Navigator.push(context, MaterialPageRoute(builder: (_) => ServiceDetailScreen(service: svc)));
   }
 
+
+  void _secretTap() {
+    final now = DateTime.now();
+    if (_lastTap != null && now.difference(_lastTap!).inSeconds > 2) {
+      _testTapCount = 0;
+    }
+    _lastTap = now;
+    _testTapCount++;
+    if (_testTapCount >= 5) {
+      _testTapCount = 0;
+      Navigator.push(context, MaterialPageRoute(
+        builder: (_) => const TestConsoleScreen()));
+    }
+  }
   @override
   Widget build(BuildContext context) {
     return Scaffold(

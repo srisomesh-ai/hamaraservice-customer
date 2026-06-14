@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../utils/theme.dart';
 import 'service_widgets.dart';
+import '../../services/service_price_service.dart';
 
 class KitchenCleaningScreen extends StatefulWidget {
   const KitchenCleaningScreen({super.key});
@@ -9,8 +10,8 @@ class KitchenCleaningScreen extends StatefulWidget {
 class _KitchenCleaningState extends State<KitchenCleaningScreen> {
   String _size = 'medium';
   bool _chimney = false, _fridge = false, _microwave = false, _cabinets = false;
-  final _px = {'small':499,'medium':699,'large':999,'commercial':1499};
-  int get _total => _px[_size]! + (_chimney?349:0) + (_fridge?199:0) + (_microwave?149:0) + (_cabinets?299:0);
+  int _p(String key) => ServicePriceService().getPrice('SVC004', key);
+  int get _total => _p(_size) + (_chimney?_p('addon_chimney'):0) + (_fridge?_p('addon_fridge'):0) + (_microwave?_p('addon_microwave'):0) + (_cabinets?_p('addon_cabinets'):0);
   List<String> get _summary => [
     'Kitchen Cleaning > ${_sl(_size)}',
     if (_chimney) 'Kitchen > Chimney Cleaning +₹349',

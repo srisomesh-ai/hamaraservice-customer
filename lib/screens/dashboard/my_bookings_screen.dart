@@ -364,7 +364,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
                     builder: (_) => PaymentScreen(bookingId: b['id'], booking: b)));
                 },
                 icon: const Icon(Icons.payment_rounded, color: Colors.white, size: 18),
-                label: Text('Pay Rs.\${b['price'] ?? b['priceVal'] ?? 0} Now',
+                label: Text('Pay Rs.${b['price'] ?? b['priceVal'] ?? 0} Now',
                   style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Colors.white)),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFFE8251A),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../utils/theme.dart';
 import 'service_widgets.dart';
+import '../../services/service_price_service.dart';
 
 class TermiteScreen extends StatefulWidget {
   const TermiteScreen({super.key});
@@ -9,9 +10,9 @@ class TermiteScreen extends StatefulWidget {
 class _TermiteState extends State<TermiteScreen> {
   String _type = 'inspection';
   String _area = 'apartment';
-  final _typePx = {'inspection':499,'prevention':1499,'treatment':2999,'complete':4999};
-  final _areaAdd = {'apartment':0,'villa':500,'office':800,'warehouse':1500};
-  int get _total => _typePx[_type]! + _areaAdd[_area]!;
+  int _p(String key) => ServicePriceService().getPrice('SVC024', key);
+
+  int get _total => _p(_type) + (_area=='apartment'?0:_p('addon_${_area}'));
   List<String> get _summary => ['Termite > ${_tl(_type)} > ${_al(_area)}'];
   String _tl(String k) => {'inspection':'Inspection Only','prevention':'Prevention Treatment','treatment':'Active Termite Treatment','complete':'Complete Package'}[k]!;
   String _al(String k) => {'apartment':'Apartment/Flat','villa':'Villa/Bungalow','office':'Office Space','warehouse':'Warehouse'}[k]!;

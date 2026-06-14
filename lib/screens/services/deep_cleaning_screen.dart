@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../utils/theme.dart';
 import 'service_widgets.dart';
+import '../../services/service_price_service.dart';
 
 class DeepCleaningScreen extends StatefulWidget {
   const DeepCleaningScreen({super.key});
@@ -14,13 +15,13 @@ class _DeepCleaningState extends State<DeepCleaningScreen> {
   bool _windows = false;
   bool _sofa = false;
 
-  final _px = {'studio':899,'1bhk':1499,'2bhk':2199,'3bhk':2999,'4bhk':3999,'villa':5499};
+  int _p(String key) => ServicePriceService().getPrice('SVC002', key);
   int get _total {
-    int t = _px[_bhk]!;
-    if (_kitchen) t += 499;
-    if (_bathroom) t += 299;
-    if (_windows) t += 399;
-    if (_sofa) t += 599;
+    int t = _p(_bhk);
+    if (_kitchen) t += _p('addon_kitchen');
+    if (_bathroom) t += _p('addon_bathroom');
+    if (_windows) t += _p('addon_windows');
+    if (_sofa) t += _p('addon_sofa');
     return t;
   }
   List<String> get _summary => [
@@ -48,10 +49,10 @@ class _DeepCleaningState extends State<DeepCleaningScreen> {
         ],selected:_bhk,onSelect:(v)=>setState(()=>_bhk=v)),
         svcInfo('Includes all rooms, fans, switchboards & floors.'),
         svcLabel('ADD-ONS (Optional)'),
-        svcChip('🍳','Kitchen Deep Clean','+ ₹499',_kitchen,()=>setState(()=>_kitchen=!_kitchen)),
-        svcChip('🚿','Extra Bathroom Deep Clean','+ ₹299',_bathroom,()=>setState(()=>_bathroom=!_bathroom)),
-        svcChip('🪟','Windows & Glass Cleaning','+ ₹399',_windows,()=>setState(()=>_windows=!_windows)),
-        svcChip('🛋️','Sofa / Upholstery Cleaning','+ ₹599',_sofa,()=>setState(()=>_sofa=!_sofa)),
+        svcChip('🍳','Kitchen Deep Clean','+ ₹\${_p("addon_kitchen")}',_kitchen,()=>setState(()=>_kitchen=!_kitchen)),
+        svcChip('🚿','Extra Bathroom Deep Clean','+ ₹\${_p("addon_bathroom")}',_bathroom,()=>setState(()=>_bathroom=!_bathroom)),
+        svcChip('🪟','Windows & Glass Cleaning','+ ₹\${_p("addon_windows")}',_windows,()=>setState(()=>_windows=!_windows)),
+        svcChip('🛋️','Sofa / Upholstery Cleaning','+ ₹\${_p("addon_sofa")}',_sofa,()=>setState(()=>_sofa=!_sofa)),
         const SizedBox(height:80),
       ])),
       svcBottomBar(ctx,true,_total,'SVC002','Deep House Cleaning','🫧','Home Cleaning',_summary),

@@ -93,7 +93,15 @@ class _PaymentScreenState extends State<PaymentScreen> {
             await http.post(
               Uri.parse('https://hamaraservice.com/api/notify_booking.php'),
               headers: {'Content-Type': 'application/json'},
-              body: '{"event":"payment_received","fcmToken":"$provToken","data":{"amount":"$_totalAmount","service":"$svcName","bookingId":"${widget.bookingId}"}}',
+              body: jsonEncode({
+                'event': 'payment_received',
+                'fcmToken': provToken,
+                'data': {
+                  'amount': _totalAmount.toString(),
+                  'service': svcName,
+                  'bookingId': widget.bookingId,
+                },
+              }),
             );
           }
         }

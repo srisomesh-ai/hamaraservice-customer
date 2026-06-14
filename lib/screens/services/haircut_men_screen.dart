@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../utils/theme.dart';
 import 'service_widgets.dart';
+import '../../services/service_price_service.dart';
 
 class HaircutMenScreen extends StatefulWidget {
   const HaircutMenScreen({super.key});
@@ -10,8 +11,8 @@ class _HaircutMenState extends State<HaircutMenScreen> {
   String _style = 'regular';
   int _persons = 1;
   bool _beard = false, _massage = false;
-  final _stylePx = {'regular':199,'fade':299,'design':349,'kids':149};
-  int get _total => (_stylePx[_style]! * _persons) + (_beard?149*_persons:0) + (_massage?99:0);
+  int _p(String key) => ServicePriceService().getPrice('SVC013', key);
+  int get _total => (_p(_style) * _persons) + (_beard?_p('addon_beard')*_persons:0) + (_massage?_p('addon_massage'):0);
   List<String> get _summary => [
     'Haircut (Men) > $_persons × ${_sl(_style)}',
     if (_beard) 'Haircut > Beard Trim +₹${149*_persons}',

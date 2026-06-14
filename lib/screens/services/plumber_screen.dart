@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../utils/theme.dart';
 import 'service_widgets.dart';
+import '../../services/service_price_service.dart';
 
 class PlumberScreen extends StatefulWidget {
   const PlumberScreen({super.key});
@@ -8,8 +9,8 @@ class PlumberScreen extends StatefulWidget {
 }
 class _PlumberState extends State<PlumberScreen> {
   final Set<String> _issues = {};
-  final _px = {'tap':399,'pipe':499,'flush':449,'block':549,'heater':599,'drain':499,'tank':699,'motor':799};
-  int get _total => _issues.isEmpty ? 399 : _issues.fold(0,(s,k)=>s+_px[k]!);
+  int _p(String key) => ServicePriceService().getPrice('SVC021', key);
+  int get _total => _issues.isEmpty ? _p('tap') : _issues.fold(0,(s,k)=>s+_p(k));
   List<String> get _summary => [
     if (_issues.isEmpty) 'Plumber > General Visit',
     ..._issues.map((k)=>'Plumber > ${_il(k)}'),

@@ -42,8 +42,10 @@ class _SplashScreenState extends State<SplashScreen>
       await Future.delayed(const Duration(milliseconds: 500));
       if (mounted) _showLocationPopup(user.uid);
     } else {
+      // Guest mode — go to home without login
+      // Login will be asked only when customer tries to Book Now
       Navigator.pushReplacement(
-        context, MaterialPageRoute(builder: (_) => const LoginScreen()));
+        context, MaterialPageRoute(builder: (_) => const HomeScreen()));
     }
   }
 

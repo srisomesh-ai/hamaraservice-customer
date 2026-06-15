@@ -53,21 +53,30 @@ void main() async {
       print('Opened from notification: \${initialMessage.data}');
     }
 
-    // Save FCM token + location on login (any method — Google, phone etc)
-    // Load service prices from Firebase (admin-controlled)
+    // Save FCM token on launch + on login
+    Future<void> saveFcmToken(String uid) async {
+      try {
+        final token = await FirebaseMessaging.instance.getToken();
+        if (token != null && token.isNotEmpty) {
+          await FirebaseDatabase.instance.ref('customers/\$uid/fcmToken').set(token);
+        }
+      } catch (_) {}
+    }
+
+    // Save immediately if user already logged in (handles guest who later logged in)
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser != null) {
+      saveFcmToken(currentUser.uid);
+      _requestAndSaveLocation(currentUser.uid);
+    }
+
+    // Also save on future auth state changes (new login)
     FirebaseAuth.instance.authStateChanges().listen((user) async {
       if (user != null) {
-        try {
-          final token = await FirebaseMessaging.instance.getToken();
-          if (token != null) {
-            await FirebaseDatabase.instance
-                .ref('customers/\${user.uid}/fcmToken').set(token);
-          }
-        } catch (_) {}
+        saveFcmToken(user.uid);
         _requestAndSaveLocation(user.uid);
       }
     });
-
     // Refresh token
     FirebaseMessaging.instance.onTokenRefresh.listen((token) async {
       final user = FirebaseAuth.instance.currentUser;

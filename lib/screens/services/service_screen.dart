@@ -231,13 +231,13 @@ class _ServiceScreenState extends State<ServiceScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
               decoration: BoxDecoration(
                 color: g.style == 'task'
-                  ? AppColors.purple.withOpacity(0.1)
+                  ? AppColors.teal.withOpacity(0.1)
                   : AppColors.teal.withOpacity(0.1),
                 borderRadius: BorderRadius.circular(10)),
               child: Text(g.style == 'task' ? 'Multi-select' : 'Select one',
                 style: TextStyle(
                   fontSize: 10, fontWeight: FontWeight.w700,
-                  color: g.style == 'task' ? AppColors.purple : AppColors.teal))),
+                  color: g.style == 'task' ? AppColors.teal : AppColors.teal))),
           ])),
         // Options
         ...g.items.map((o) => _buildOption(g, o)),

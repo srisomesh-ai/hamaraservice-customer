@@ -58,30 +58,30 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     {'id':'SVC005','icon':'🛋️','name':'Sofa / Carpet','cat':'Cleaning','color':0xFFE0F7FA,'popular':true,'img':'assets/images/sofa-carpet-cleaning.jpg'},
     {'id':'SVC006','icon':'🧴','name':'Laundry / Ironing','cat':'Cleaning','color':0xFFEDE7F6,'popular':false,'img':'assets/images/laundry-ironing.jpg'},
     {'id':'SVC007','icon':'❄️','name':'AC Service','cat':'Repairs','color':0xFFE3F2FD,'popular':true,'img':'assets/images/ac-service.jpg'},
-    {'id':'SVC008','icon':'🔧','name':'Appliance Repair','cat':'Repairs','color':0xFFFBE9E7,'popular':false,'img':'assets/images/laundry-ironing.jpg'},
-    {'id':'SVC009','icon':'⚡','name':'Electrician','cat':'Repairs','color':0xFFFFF9C4,'popular':true,'img':'assets/images/electrician.jpg'},
-    {'id':'SVC010','icon':'🔧','name':'Plumber','cat':'Repairs','color':0xFFE1F5FE,'popular':true,'img':'assets/images/plumber.jpg'},
-    {'id':'SVC011','icon':'🔨','name':'Carpenter','cat':'Repairs','color':0xFFEFEBE9,'popular':false,'img':'assets/images/carpenter.jpg'},
-    {'id':'SVC012','icon':'🎨','name':'Painter','cat':'Repairs','color':0xFFFCE4EC,'popular':false,'img':'assets/images/painter.jpg'},
-    {'id':'SVC013','icon':'🚗','name':'Car / Bike Wash','cat':'Vehicle','color':0xFFE8EAF6,'popular':true,'img':'assets/images/car-wash.jpg'},
-    {'id':'SVC014','icon':'🔩','name':'Car Mechanic','cat':'Vehicle','color':0xFFECEFF1,'popular':false,'img':'assets/images/mechanic.jpg'},
-    {'id':'SVC015','icon':'🚙','name':'Driver','cat':'Vehicle','color':0xFFE8F5E9,'popular':false,'img':'assets/images/driver.jpg'},
-    {'id':'SVC016','icon':'👨‍⚕️','name':'Doctor Visit','cat':'Health','color':0xFFE3F2FD,'popular':true,'img':'assets/images/doctor-visit.jpg'},
-    {'id':'SVC017','icon':'💉','name':'Nurse Visit','cat':'Health','color':0xFFF3E5F5,'popular':false,'img':'assets/images/nurse-visit.jpg'},
-    {'id':'SVC018','icon':'🧪','name':'Lab Test','cat':'Health','color':0xFFE8F5E9,'popular':false,'img':'assets/images/lab-test.jpg'},
-    {'id':'SVC019','icon':'💪','name':'Fitness Trainer','cat':'Health','color':0xFFFFF3E0,'popular':false,'img':'assets/images/fitness-trainer.jpg'},
-    {'id':'SVC020','icon':'💆','name':'Massage','cat':'Beauty','color':0xFFF3E5F5,'popular':true,'img':'assets/images/massage.jpg'},
-    {'id':'SVC021','icon':'💇','name':'Women Beauty','cat':'Beauty','color':0xFFFCE4EC,'popular':true,'img':'assets/images/haircut-women.jpg'},
-    {'id':'SVC022','icon':'💈','name':'Men Haircut','cat':'Beauty','color':0xFFE8EAF6,'popular':false,'img':'assets/images/haircut-men.jpg'},
-    {'id':'SVC023','icon':'👶','name':'Babysitter','cat':'Care','color':0xFFFFF8E1,'popular':false,'img':'assets/images/babysitter.jpg'},
-    {'id':'SVC024','icon':'🧓','name':'Elderly Care','cat':'Care','color':0xFFE8F5E9,'popular':false,'img':'assets/images/elderly-care.jpg'},
-    {'id':'SVC025','icon':'🐛','name':'Pest Control','cat':'Cleaning','color':0xFFEFEBE9,'popular':false,'img':'assets/images/pest-control.jpg'},
-    {'id':'SVC026','icon':'🌿','name':'Gardener','cat':'Cleaning','color':0xFFE8F5E9,'popular':false,'img':'assets/images/gardener.jpg'},
-    {'id':'SVC027','icon':'☀️','name':'Solar Panel','cat':'Repairs','color':0xFFFFF9C4,'popular':false,'img':'assets/images/solar-panel.jpg'},
-    {'id':'SVC028','icon':'💧','name':'Water Purifier','cat':'Repairs','color':0xFFE1F5FE,'popular':false,'img':'assets/images/water-purifier.jpg'},
-    {'id':'SVC029','icon':'📷','name':'CCTV','cat':'Repairs','color':0xFFECEFF1,'popular':false,'img':'assets/images/cctv.jpg'},
-    {'id':'SVC030','icon':'💂','name':'Security Guard','cat':'Care','color':0xFFEEEEEE,'popular':false,'img':'assets/images/security-guard.jpg'},
-    {'id':'SVC031','icon':'🏗️','name':'Civil / Mason','cat':'Repairs','color':0xFFFBE9E7,'popular':false,'img':'assets/images/civil-mason.jpg'},
+    {'id':'SVC009','icon':'🔧','name':'Appliance Repair','cat':'Repairs','color':0xFFFBE9E7,'popular':false,'img':'assets/images/laundry-ironing.jpg'},
+    {'id':'SVC012','icon':'⚡','name':'Electrician','cat':'Repairs','color':0xFFFFF9C4,'popular':true,'img':'assets/images/electrician.jpg'},
+    {'id':'SVC011','icon':'🔧','name':'Plumber','cat':'Repairs','color':0xFFE1F5FE,'popular':true,'img':'assets/images/plumber.jpg'},
+    {'id':'SVC013','icon':'🔨','name':'Carpenter','cat':'Repairs','color':0xFFEFEBE9,'popular':false,'img':'assets/images/carpenter.jpg'},
+    {'id':'SVC014','icon':'🎨','name':'Painter','cat':'Repairs','color':0xFFFCE4EC,'popular':false,'img':'assets/images/painter.jpg'},
+    {'id':'SVC017','icon':'🚗','name':'Car / Bike Wash','cat':'Vehicle','color':0xFFE8EAF6,'popular':true,'img':'assets/images/car-wash.jpg'},
+    {'id':'SVC019','icon':'🔩','name':'Car Mechanic','cat':'Vehicle','color':0xFFECEFF1,'popular':false,'img':'assets/images/mechanic.jpg'},
+    {'id':'SVC033','icon':'🚙','name':'Driver','cat':'Vehicle','color':0xFFE8F5E9,'popular':false,'img':'assets/images/driver.jpg'},
+    {'id':'SVC027','icon':'👨‍⚕️','name':'Doctor Visit','cat':'Health','color':0xFFE3F2FD,'popular':true,'img':'assets/images/doctor-visit.jpg'},
+    {'id':'SVC028','icon':'💉','name':'Nurse Visit','cat':'Health','color':0xFFF3E5F5,'popular':false,'img':'assets/images/nurse-visit.jpg'},
+    {'id':'SVC029','icon':'🧪','name':'Lab Test','cat':'Health','color':0xFFE8F5E9,'popular':false,'img':'assets/images/lab-test.jpg'},
+    {'id':'SVC026','icon':'💪','name':'Fitness Trainer','cat':'Health','color':0xFFFFF3E0,'popular':false,'img':'assets/images/fitness-trainer.jpg'},
+    {'id':'SVC025','icon':'💆','name':'Massage','cat':'Beauty','color':0xFFF3E5F5,'popular':true,'img':'assets/images/massage.jpg'},
+    {'id':'SVC024','icon':'💇','name':'Women Beauty','cat':'Beauty','color':0xFFFCE4EC,'popular':true,'img':'assets/images/haircut-women.jpg'},
+    {'id':'SVC023','icon':'💈','name':'Men Haircut','cat':'Beauty','color':0xFFE8EAF6,'popular':false,'img':'assets/images/haircut-men.jpg'},
+    {'id':'SVC030','icon':'👶','name':'Babysitter','cat':'Care','color':0xFFFFF8E1,'popular':false,'img':'assets/images/babysitter.jpg'},
+    {'id':'SVC031','icon':'🧓','name':'Elderly Care','cat':'Care','color':0xFFE8F5E9,'popular':false,'img':'assets/images/elderly-care.jpg'},
+    {'id':'SVC021','icon':'🐛','name':'Pest Control','cat':'Cleaning','color':0xFFEFEBE9,'popular':false,'img':'assets/images/pest-control.jpg'},
+    {'id':'SVC032','icon':'🌿','name':'Gardener','cat':'Cleaning','color':0xFFE8F5E9,'popular':false,'img':'assets/images/gardener.jpg'},
+    {'id':'SVC016','icon':'☀️','name':'Solar Panel','cat':'Repairs','color':0xFFFFF9C4,'popular':false,'img':'assets/images/solar-panel.jpg'},
+    {'id':'SVC010','icon':'💧','name':'Water Purifier','cat':'Repairs','color':0xFFE1F5FE,'popular':false,'img':'assets/images/water-purifier.jpg'},
+    {'id':'SVC015','icon':'📷','name':'CCTV','cat':'Repairs','color':0xFFECEFF1,'popular':false,'img':'assets/images/cctv.jpg'},
+    {'id':'SVC034','icon':'💂','name':'Security Guard','cat':'Care','color':0xFFEEEEEE,'popular':false,'img':'assets/images/security-guard.jpg'},
+    {'id':'SVC022','icon':'🏗️','name':'Civil / Mason','cat':'Repairs','color':0xFFFBE9E7,'popular':false,'img':'assets/images/civil-mason.jpg'},
   ];
 
   List<Map<String, dynamic>> get _filtered {
@@ -136,9 +136,12 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
   Future<void> _refreshGPSLocation() async {
     try {
-      final permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied ||
-          permission == LocationPermission.deniedForever) return;
+      // Request permission on first launch
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.deniedForever) return;
       final pos = await Geolocator.getCurrentPosition(
           desiredAccuracy: LocationAccuracy.medium);
       String city = '';

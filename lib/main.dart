@@ -35,11 +35,31 @@ void main() async {
     await FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(
       alert: true, badge: true, sound: true);
 
-    // Handle foreground messages — show notification
-    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-      print('Foreground FCM: \${message.notification?.title}');
-      // FCM handles display automatically via AndroidManifest channel
-      // For in-app overlay, the screens handle their own alerts via Firebase listeners
+    // Handle foreground messages — show overlay banner when app is open
+    FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
+      final n = message.notification;
+      if (n == null) return;
+      // Use flutter_local_notifications to show heads-up even when app is open
+      try {
+        final flnp = FlutterLocalNotificationsPlugin();
+        await flnp.show(
+          message.hashCode,
+          n.title ?? 'HamaraService',
+          n.body ?? '',
+          const NotificationDetails(
+            android: AndroidNotificationDetails(
+              'hamaraservice_high_priority',
+              'HamaraService Alerts',
+              channelDescription: 'Booking and payment notifications',
+              importance: Importance.max,
+              priority: Priority.high,
+              playSound: true,
+              enableVibration: true,
+              visibility: NotificationVisibility.public,
+            ),
+          ),
+        );
+      } catch (_) {}
     });
 
     // Handle notification tap from background

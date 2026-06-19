@@ -524,7 +524,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             margin: const EdgeInsets.only(right: 12),
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: Color(b['color'] as int),
+              color: Color(b['color'] != null ? b['color'] as int : 0xFF1B6B7A),
               borderRadius: BorderRadius.circular(16),
             ),
             child: Row(children: [
@@ -617,7 +617,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     onTap: () => _onServiceTap(svc),
     child: Container(
       decoration: BoxDecoration(
-        color: Color(svc['color'] as int),
+        color: Color(svc['color'] != null ? svc['color'] as int : 0xFF1B6B7A),
         borderRadius: BorderRadius.circular(16),
         boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 8, offset: const Offset(0, 2))],
       ),
@@ -629,13 +629,13 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             // Image or icon background
             img.isNotEmpty
     ? Container(
-        color: Color(svc['color'] as int),
+        color: Color(svc['color'] != null ? svc['color'] as int : 0xFF1B6B7A),
         padding: const EdgeInsets.all(12),
         child: Image.asset(img, fit: BoxFit.contain,
           errorBuilder: (_, __, ___) => Center(child: Text(svc['icon'] as String,
             style: const TextStyle(fontSize: 40)))))
     : Container(
-        color: Color(svc['color'] as int),
+        color: Color(svc['color'] != null ? svc['color'] as int : 0xFF1B6B7A),
         child: Center(child: Text(svc['icon'] as String,
           style: const TextStyle(fontSize: 40))),
       ),
@@ -678,7 +678,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     return Container(
       width: size == double.infinity ? double.infinity : size,
       height: size == double.infinity ? double.infinity : size,
-      color: Color(svc['color'] as int),
+      color: Color(svc['color'] != null ? svc['color'] as int : 0xFF1B6B7A),
       child: Center(
         child: Text(svc['icon'] as String,
           style: TextStyle(fontSize: size == double.infinity ? 36 : 30)),

@@ -181,6 +181,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
   @override
   void dispose() {
+    _appOtpListener?.cancel();
     _searchCtrl.dispose();
     _bookingTabCtrl.dispose();
     super.dispose();

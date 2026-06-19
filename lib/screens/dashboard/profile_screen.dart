@@ -31,7 +31,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> _loadProfile() async {
     setState(() => _loading = true);
     final uid = _user?.uid;
-    if (uid == null) return;
+    if (uid == null) {
+      setState(() => _loading = false);
+      return;
+    }
     try {
       // Pre-fill from Firebase Auth
       _nameCtrl.text  = _user?.displayName ?? '';
@@ -99,6 +102,53 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   Widget build(BuildContext context) {
     if (_loading) return const Center(child: CircularProgressIndicator(color: AppColors.teal));
+
+    // Not logged in — show login prompt
+    if (_user == null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 80, height: 80,
+                decoration: BoxDecoration(color: AppColors.tealSoft, shape: BoxShape.circle),
+                child: const Icon(Icons.person_rounded, color: AppColors.teal, size: 44),
+              ),
+              const SizedBox(height: 20),
+              const Text('Sign in to view your profile',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: AppColors.ink)),
+              const SizedBox(height: 8),
+              const Text('Login or register to manage your bookings and profile',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 13, color: AppColors.muted, height: 1.5)),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () async {
+                    await Navigator.push(context,
+                      MaterialPageRoute(builder: (_) => const LoginScreen()));
+                    // Refresh after returning from login
+                    setState(() {
+                      _user = FirebaseAuth.instance.currentUser;
+                    });
+                    if (_user != null) _loadProfile();
+                  },
+                  style: ElevatedButton.styleFrom(
+                    minimumSize: const Size(double.infinity, 52),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
+                  child: const Text('Sign In / Register',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
       child: Column(

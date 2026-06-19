@@ -1,14 +1,19 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
 import 'firebase_options.dart';
 import 'utils/theme.dart';
 import 'screens/splash_screen.dart';
+
+// Global FLNP instance
+final FlutterLocalNotificationsPlugin flnp = FlutterLocalNotificationsPlugin();
 
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
@@ -20,17 +25,16 @@ void main() async {
   try {
     await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
-  // Initialize flutter_local_notifications for foreground display
-  final flnp = FlutterLocalNotificationsPlugin();
-  await flnp.initialize(
-    const InitializationSettings(
-      android: AndroidInitializationSettings('@mipmap/ic_launcher'),
-    ),
-  );
+    // Initialize local notifications for foreground display
+    await flnp.initialize(
+      const InitializationSettings(
+        android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+      ),
+    );
 
     FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
-    // Request permission — critical for iOS
+    // Request permission
     final settings = await FirebaseMessaging.instance.requestPermission(
       alert: true,
       badge: true,
@@ -44,13 +48,11 @@ void main() async {
     await FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(
       alert: true, badge: true, sound: true);
 
-    // Handle foreground messages — show overlay banner when app is open
+    // Show notification when app is open (foreground)
     FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
       final n = message.notification;
       if (n == null) return;
-      // Use flutter_local_notifications to show heads-up even when app is open
       try {
-        final flnp = FlutterLocalNotificationsPlugin();
         await flnp.show(
           message.hashCode,
           n.title ?? 'HamaraService',
@@ -82,7 +84,7 @@ void main() async {
       print('Opened from notification: \${initialMessage.data}');
     }
 
-    // Save FCM token on launch + on login
+    // Save FCM token
     Future<void> saveFcmToken(String uid) async {
       try {
         final token = await FirebaseMessaging.instance.getToken();
@@ -92,21 +94,19 @@ void main() async {
       } catch (_) {}
     }
 
-    // Save immediately if user already logged in (handles guest who later logged in)
     final currentUser = FirebaseAuth.instance.currentUser;
     if (currentUser != null) {
       saveFcmToken(currentUser.uid);
       _requestAndSaveLocation(currentUser.uid);
     }
 
-    // Also save on future auth state changes (new login)
     FirebaseAuth.instance.authStateChanges().listen((user) async {
       if (user != null) {
         saveFcmToken(user.uid);
         _requestAndSaveLocation(user.uid);
       }
     });
-    // Refresh token
+
     FirebaseMessaging.instance.onTokenRefresh.listen((token) async {
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {

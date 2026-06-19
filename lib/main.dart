@@ -21,7 +21,7 @@ void main() async {
     await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
   // Initialize flutter_local_notifications for foreground display
-  const flnp = FlutterLocalNotificationsPlugin();
+  final flnp = FlutterLocalNotificationsPlugin();
   await flnp.initialize(
     const InitializationSettings(
       android: AndroidInitializationSettings('@mipmap/ic_launcher'),

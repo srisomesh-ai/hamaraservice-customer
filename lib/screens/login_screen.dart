@@ -158,8 +158,12 @@ class _LoginScreenState extends State<LoginScreen> {
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Image.network('https://www.google.com/favicon.ico', width: 20, height: 20,
-                                errorBuilder: (_, __, ___) => const Icon(Icons.g_mobiledata, size: 22, color: AppColors.teal)),
+                              Container(
+                                width: 22, height: 22,
+                                decoration: BoxDecoration(
+                                  color: AppColors.tealSoft,
+                                  borderRadius: BorderRadius.circular(4)),
+                                child: const Icon(Icons.g_mobiledata_rounded, size: 18, color: AppColors.teal)),
                               const SizedBox(width: 10),
                               const Text('Continue with Google', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.ink)),
                             ],

@@ -70,19 +70,18 @@ class _PaymentScreenState extends State<PaymentScreen> {
       if (_pendingPenalty > 0 && uid.isNotEmpty) {
         await FirebaseDatabase.instance.ref('customers/$uid/pendingPenalty').set(0);
       }
-      // Update provider earnings NOW that customer has paid
+      // Record commission rate on booking so provider earnings_screen
+      // can recalculate correctly — do NOT write totalEarned here
+      // (earnings_screen is the single source of truth for provider balance)
       if (providerId.isNotEmpty) {
-        final provSnap = await FirebaseDatabase.instance.ref('providers/$providerId').get();
-        if (provSnap.exists) {
-          final data = Map<String, dynamic>.from(provSnap.value as Map);
-          final currentEarned = ((data['totalEarned'] ?? 0) as num).toDouble();
-          final svcName = widget.booking['service'] as String? ?? '';
-          final commRate = _getCommissionRate(svcName);
-          final netEarned = _baseAmount * (1 - commRate / 100);
-          await FirebaseDatabase.instance.ref('providers/$providerId').update({
-            'totalEarned': currentEarned + netEarned,
-          });
-        }
+        final svcName = widget.booking['service'] as String? ?? '';
+        final commRate = _getCommissionRate(svcName);
+        final netEarned = (_baseAmount * (1 - commRate / 100)).roundToDouble();
+        await FirebaseDatabase.instance.ref('bookings/${widget.bookingId}').update({
+          'commissionRate': commRate,
+          'platformFee': (_baseAmount * commRate / 100).round(),
+          'providerEarned': netEarned.round(),
+        });
       }
       // Push notification to provider — payment received
       try {
@@ -288,17 +287,39 @@ class _PaymentScreenState extends State<PaymentScreen> {
     );
   }
 
-  double _getCommissionRate(String service) {
-    final s = service.toLowerCase();
-    if (s.contains('electrician') || s.contains('plumber')) return 20;
-    if (s.contains('ac') || s.contains('appliance')) return 18;
-    if (s.contains('deep clean') || s.contains('kitchen')) return 12;
-    if (s.contains('carpenter') || s.contains('painter') || s.contains('civil')) return 12;
-    if (s.contains('water purifier') || s.contains('cctv') || s.contains('doctor') ||
-        s.contains('nurse') || s.contains('fitness') || s.contains('massage') ||
-        s.contains('beauty') || s.contains('mechanic') || s.contains('driver')) return 15;
-    return 10;
-  }
+
+// ── Commission rates — MUST match provider earnings_screen.dart ─
+double _getCommissionRate(String service) {
+  final s = service.toLowerCase();
+  // Exact-name check first (most reliable)
+  const Map<String, double> rates = {
+    'house maid': 10, 'deep cleaning': 12, 'bathroom cleaning': 10,
+    'kitchen cleaning': 12, 'sofa / carpet cleaning': 12, 'laundry / ironing': 10,
+    'pest control': 10, 'gardener': 10, 'ac cleaning & repair': 15,
+    'home appliance repair': 18, 'water purifier service': 15,
+    'plumber': 20, 'electrician': 20, 'carpenter': 12, 'painter': 12,
+    'cctv installation': 15, 'solar panel cleaning': 12,
+    'car / bike wash': 10, 'car & bike mechanic': 15,
+    'cook / cooking person': 10, "men's haircut at home": 12,
+    "women's haircut & beauty": 12, 'full body massage': 15,
+    'gym / fitness trainer': 15, 'doctor visit at home': 15,
+    'nurse visit at home': 15, 'lab test collection': 15,
+    'babysitter / nanny': 10, 'elderly care': 10,
+    'driver': 15, 'security guard & bouncers': 10,
+  };
+  // Check exact name
+  if (rates.containsKey(s)) return rates[s]!;
+  // Fallback keyword check
+  if (s.contains('electrician') || s.contains('plumber')) return 20;
+  if (s.contains('appliance') || s.contains('repair')) return 18;
+  if (s.contains('ac') || s.contains('air condition')) return 15;
+  if (s.contains('deep clean') || s.contains('kitchen')) return 12;
+  if (s.contains('carpenter') || s.contains('painter')) return 12;
+  if (s.contains('doctor') || s.contains('nurse') || s.contains('lab')) return 15;
+  if (s.contains('fitness') || s.contains('massage') || s.contains('beauty')) return 15;
+  if (s.contains('mechanic') || s.contains('driver') || s.contains('cctv')) return 15;
+  return 10; // default
+}
 
   Widget _billRow(String label, String value) {
     return Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [

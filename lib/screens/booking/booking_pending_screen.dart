@@ -68,7 +68,7 @@ class BookingPendingScreen extends StatelessWidget {
                     Container(
                       width: 48, height: 48,
                       decoration: BoxDecoration(
-                        color: Color(service['color'] as int),
+                        color: Color(service['color'] != null ? service['color'] as int : 0xFF1B6B7A),
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Center(child: Text(service['icon'] as String,

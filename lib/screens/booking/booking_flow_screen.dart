@@ -352,7 +352,7 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
           boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 8)]),
         child: Row(children: [
           Container(width: 52, height: 52,
-            decoration: BoxDecoration(color: Color(widget.service['color'] as int), borderRadius: BorderRadius.circular(12)),
+            decoration: BoxDecoration(color: Color(widget.service['color'] != null ? widget.service['color'] as int : 0xFF1B6B7A), borderRadius: BorderRadius.circular(12)),
             child: Center(child: Text(widget.service['icon'] as String, style: const TextStyle(fontSize: 28)))),
           const SizedBox(width: 14),
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

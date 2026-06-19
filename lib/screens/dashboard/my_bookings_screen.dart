@@ -48,7 +48,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
   void _listen() {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
-    _listener = FirebaseDatabase.instance.ref('bookings').onValue.listen((event) {
+    _listener = FirebaseDatabase.instance.ref('bookings').orderByChild('customerId').equalTo(uid).onValue.listen((event) {
       if (!mounted) return;
       if (!event.snapshot.exists) {
         setState(() { _bookings = []; _loading = false; });
@@ -70,7 +70,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
       for (final b in mine) {
         final id = b['id'] as String? ?? '';
         if (id.isEmpty) continue;
-        if (['active','otp_sent','accepted'].contains(b['status'])) {
+        if (['active','otp_sent','accepted','payment_pending'].contains(b['status'])) {
           _watchOTP(id, b['service'] ?? '');
         }
         // Watch acceptance for searching/pending

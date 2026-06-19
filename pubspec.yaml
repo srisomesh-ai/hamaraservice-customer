@@ -13,6 +13,7 @@ dependencies:
   firebase_auth: ^4.6.3
   firebase_database: ^10.2.4
   firebase_messaging: ^14.9.4
+  flutter_local_notifications: ^17.2.4
   shared_preferences: ^2.1.2
   http: ^1.1.0
   pinput: ^3.0.1

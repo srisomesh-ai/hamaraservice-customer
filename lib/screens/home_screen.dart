@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -33,6 +34,14 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   DateTime? _lastTap;
   User? _user;
   int _selectedCat = 0;
+
+  // App-level OTP listener — fires regardless of which tab is active
+  StreamSubscription? _appOtpListener;
+  bool _showAppOtpPopup = false;
+  String _appOtpCode = '';
+  String _appOtpService = '';
+  String _appOtpBookingId = '';
+  Map<String, dynamic> _appOtpBooking = {};
 
   final List<Map<String, dynamic>> _categories = [
     {'icon': '🏠', 'label': 'All'},
@@ -103,6 +112,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   @override
   void initState() {
     super.initState();
+    _startAppOtpListener();
     _user = FirebaseAuth.instance.currentUser;
     _bookingTabCtrl = TabController(length: 3, vsync: this);
     _loadAndUpdateCity();
@@ -176,6 +186,118 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     super.dispose();
   }
 
+  void _startAppOtpListener() {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+    // Listen to job_otp filtered by customerId — fires on any tab
+    _appOtpListener = FirebaseDatabase.instance
+        .ref('job_otp')
+        .orderByChild('customerId')
+        .equalTo(uid)
+        .onValue
+        .listen((event) {
+      if (!event.snapshot.exists || !mounted) return;
+      final all = Map<String, dynamic>.from(event.snapshot.value as Map);
+      for (final entry in all.entries) {
+        final data = Map<String, dynamic>.from(entry.value as Map);
+        final status = data['status']?.toString() ?? '';
+        final otp = data['otp']?.toString() ?? '';
+        final bookingId = data['bookingId']?.toString() ?? entry.key;
+        if (status == 'waiting' && otp.isNotEmpty && !_showAppOtpPopup) {
+          setState(() {
+            _showAppOtpPopup = true;
+            _appOtpCode = otp;
+            _appOtpBookingId = bookingId;
+            _appOtpService = data['service']?.toString() ?? '';
+            _appOtpBooking = data;
+          });
+        } else if (status == 'verified' && _appOtpBookingId == bookingId) {
+          setState(() => _showAppOtpPopup = false);
+          // Load booking and navigate to payment
+          FirebaseDatabase.instance.ref('bookings/$bookingId').get().then((snap) {
+            if (snap.exists && mounted) {
+              final booking = Map<String, dynamic>.from(snap.value as Map);
+              Navigator.push(context, MaterialPageRoute(
+                  builder: (_) => PaymentScreen(bookingId: bookingId, booking: booking)));
+            }
+          });
+        }
+      }
+    });
+  }
+
+  Widget _buildAppOtpPopup() {
+    if (!_showAppOtpPopup) return const SizedBox.shrink();
+    return Stack(children: [
+      // Dark overlay
+      Positioned.fill(child: GestureDetector(
+        onTap: () {}, // prevent dismiss by tapping outside
+        child: Container(color: Colors.black.withOpacity(0.7)))),
+      // OTP card
+      Center(child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(24),
+            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 40)]),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Container(
+              padding: const EdgeInsets.all(24),
+              decoration: const BoxDecoration(
+                color: AppColors.teal,
+                borderRadius: BorderRadius.only(
+                  topLeft: Radius.circular(24), topRight: Radius.circular(24))),
+              child: Column(children: [
+                const Icon(Icons.lock_rounded, color: Colors.white, size: 40),
+                const SizedBox(height: 8),
+                const Text('Job Completion OTP',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Colors.white)),
+                Text('Share with provider to complete $_appOtpService',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 12, color: Colors.white70)),
+              ])),
+            Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(children: [
+                const Text('YOUR OTP CODE',
+                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800,
+                    color: AppColors.muted, letterSpacing: 1)),
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: _appOtpCode.split('').map((d) => Container(
+                    width: 56, height: 64, margin: const EdgeInsets.symmetric(horizontal: 4),
+                    decoration: BoxDecoration(
+                      color: AppColors.bg, borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppColors.green, width: 2)),
+                    child: Center(child: Text(d,
+                      style: const TextStyle(fontSize: 34, fontWeight: FontWeight.w900,
+                        color: AppColors.ink))))).toList()),
+                const SizedBox(height: 16),
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: AppColors.yellow.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(10)),
+                  child: const Row(children: [
+                    Icon(Icons.info_outline_rounded, color: AppColors.yellow, size: 16),
+                    SizedBox(width: 8),
+                    Expanded(child: Text('Do not share this code until the work is done',
+                      style: TextStyle(fontSize: 12, color: AppColors.yellow,
+                        fontWeight: FontWeight.w600))),
+                  ])),
+                const SizedBox(height: 16),
+                TextButton(
+                  onPressed: () => setState(() => _showAppOtpPopup = false),
+                  child: const Text('Dismiss',
+                    style: TextStyle(color: AppColors.muted, fontSize: 13))),
+              ])),
+          ])),
+      )),
+    ]);
+  }
+
   void _onServiceTap(Map<String, dynamic> svc) {
     final id = svc['id']?.toString() ?? '';
     if (id.isEmpty) return;
@@ -215,10 +337,13 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           BottomNavigationBarItem(icon: Icon(Icons.person_rounded), label: 'Profile'),
         ],
       ),
-      body: IndexedStack(
-        index: _currentIndex,
-        children: [_buildHome(), _buildBookings(), _buildProfile()],
-      ),
+      body: Stack(children: [
+        IndexedStack(
+          index: _currentIndex,
+          children: [_buildHome(), _buildBookings(), _buildProfile()],
+        ),
+        _buildAppOtpPopup(),
+      ]),
     );
   }
 

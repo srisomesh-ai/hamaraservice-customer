@@ -17,6 +17,7 @@ import 'dashboard/booking_history_screen.dart';
 import 'dashboard/profile_screen.dart';
 import 'dashboard/completed_bookings_screen.dart';
 import 'dashboard/cancelled_bookings_screen.dart';
+import 'booking/payment_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});

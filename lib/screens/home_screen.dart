@@ -31,6 +31,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   final _searchCtrl = TextEditingController();
   String _searchQuery = '';
   String _city = 'Your City';
+  Map<String, Map<String,int>> _providerPriceRanges = {}; // svcId → {min, max}
   int _testTapCount = 0;
   DateTime? _lastTap;
   User? _user;
@@ -117,6 +118,42 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     _user = FirebaseAuth.instance.currentUser;
     _bookingTabCtrl = TabController(length: 3, vsync: this);
     _loadAndUpdateCity();
+    _loadProviderPriceRanges();
+  }
+
+  Future<void> _loadProviderPriceRanges() async {
+    try {
+      final snap = await FirebaseDatabase.instance.ref('providers').get();
+      if (!snap.exists || snap.value == null) return;
+      final providers = Map<String, dynamic>.from(snap.value as Map);
+      final Map<String, List<int>> mins = {};
+      final Map<String, List<int>> maxs = {};
+      providers.forEach((pid, pval) {
+        if (pval is! Map) return;
+        final p = Map<String, dynamic>.from(pval);
+        if (p['status']?.toString() != 'approved') return;
+        final services = p['services'];
+        if (services is! Map) return;
+        Map<String, dynamic>.from(services).forEach((svcId, svcVal) {
+          if (svcVal is! Map) return;
+          final sv = Map<String, dynamic>.from(svcVal);
+          if (sv['enabled'] != true) return;
+          final mn = (sv['min'] as num?)?.toInt() ?? 0;
+          final mx = (sv['max'] as num?)?.toInt() ?? 0;
+          if (mn > 0) { mins.putIfAbsent(svcId, () => []).add(mn); }
+          if (mx > 0) { maxs.putIfAbsent(svcId, () => []).add(mx); }
+        });
+      });
+      final Map<String, Map<String,int>> ranges = {};
+      {...mins.keys, ...maxs.keys}.forEach((svcId) {
+        final mn = (mins[svcId] ?? []).fold<int>(999999, (a,b) => a < b ? a : b);
+        final mx = (maxs[svcId] ?? []).fold<int>(0, (a,b) => a > b ? a : b);
+        if (mn < 999999 || mx > 0) {
+          ranges[svcId] = {'min': mn < 999999 ? mn : 0, 'max': mx};
+        }
+      });
+      if (mounted) setState(() => _providerPriceRanges = ranges);
+    } catch (_) {}
   }
 
   Future<void> _loadAndUpdateCity() async {
@@ -726,16 +763,43 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     ],
                   ),
                 ),
-                child: Text(
-                  svc['name'] as String,
-                  textAlign: TextAlign.center,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white,
-                  ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      svc['name'] as String,
+                      textAlign: TextAlign.center,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                      ),
+                    ),
+                    // Provider price range
+                    Builder(builder: (ctx) {
+                      final svcId = svc['id']?.toString() ?? '';
+                      final range = _providerPriceRanges[svcId];
+                      if (range == null) return const SizedBox.shrink();
+                      final mn = range['min'] ?? 0;
+                      final mx = range['max'] ?? 0;
+                      if (mn == 0 && mx == 0) return const SizedBox.shrink();
+                      final label = mn == mx || mx == 0
+                          ? '₹$mn'
+                          : mn == 0 ? 'up to ₹$mx' : '₹$mn–₹$mx';
+                      return Container(
+                        margin: const EdgeInsets.only(top: 3),
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(100)),
+                        child: Text(label,
+                          style: const TextStyle(
+                            fontSize: 9, fontWeight: FontWeight.w800, color: Colors.white)),
+                      );
+                    }),
+                  ],
                 ),
               ),
             ),

@@ -172,12 +172,23 @@ class _RadarScreenState extends State<RadarScreen>
       }
       try {
         final snap = await FirebaseDatabase.instance
-            .ref('active_bookings/${widget.bookingId}/acceptedBy')
+            .ref('active_bookings/\${widget.bookingId}')
             .get();
-        if (snap.exists && snap.value != null) {
-          t.cancel();
-          _rangeTimer?.cancel();
-          _providerAccepted();
+        if (!snap.exists || snap.value == null) { i += 9; i++; continue; }
+        final bkData = Map<String,dynamic>.from(snap.value as Map);
+        final bkStatus = bkData['status']?.toString() ?? '';
+        if ((bkStatus == "price_quoted") && bkData["acceptedBy"] != null && !_navigating) {
+          t.cancel(); _rangeTimer?.cancel();
+          final q = (bkData["quotedPrice"] as num?)?.toInt() ?? 0;
+          final pn = (bkData["acceptedBy"] is Map) ? (bkData["acceptedBy"] as Map)["name"]?.toString() ?? "Provider" : "Provider";
+          if (mounted) _showPriceQuote(q, pn, bkData);
+        } else if (bkStatus == "negotiation_final" && bkData["finalPrice"] != null && !_navigating) {
+          t.cancel(); _rangeTimer?.cancel();
+          final fp = (bkData["finalPrice"] as num?)?.toInt() ?? 0;
+          final pn = (bkData["acceptedBy"] is Map) ? (bkData["acceptedBy"] as Map)["name"]?.toString() ?? "Provider" : "Provider";
+          if (mounted) _showFinalOffer(fp, pn);
+        } else if ((bkStatus == "confirmed" || bkStatus == "accepted") && bkData["acceptedBy"] != null && !_navigating) {
+          t.cancel(); _rangeTimer?.cancel(); _providerAccepted();
         }
       } catch (e) {}
     });

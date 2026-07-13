@@ -1,6 +1,8 @@
+import 'dart:convert';
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:flutter/services.dart';
 import 'package:firebase_database/firebase_database.dart';
 import '../../utils/theme.dart';
@@ -231,6 +233,249 @@ class _RadarScreenState extends State<RadarScreen>
         _addLog('📡', 'No providers online within $km km', type: 'info');
       }
     } catch (e) {}
+  }
+
+  // Show quoted price to customer — Accept / Negotiate / Search Another
+  void _showPriceQuote(int quotedPrice, String providerName, Map<String,dynamic> bookingData) {
+    if (_navigating || !mounted) return;
+    _pollTimer?.cancel();
+    _rangeTimer?.cancel();
+    final counterCtrl = TextEditingController();
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setS) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              Container(width:36, height:36,
+                decoration: BoxDecoration(color:AppColors.tealSoft, shape:BoxShape.circle),
+                child: const Icon(Icons.handyman_rounded, color:AppColors.teal, size:20)),
+              const SizedBox(width:10),
+              Expanded(child: Text(providerName,
+                style: const TextStyle(fontSize:16, fontWeight:FontWeight.w800))),
+            ]),
+            const SizedBox(height:4),
+            const Text('Provider accepted your booking',
+              style: TextStyle(fontSize:12, color:AppColors.muted)),
+          ]),
+          content: Column(mainAxisSize: MainAxisSize.min, children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: AppColors.tealSoft,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: AppColors.teal.withOpacity(0.3))),
+              child: Column(children: [
+                const Text('QUOTED PRICE', style: TextStyle(fontSize:11,
+                  fontWeight:FontWeight.w800, color:AppColors.muted, letterSpacing:.5)),
+                const SizedBox(height:6),
+                Text('₹$quotedPrice',
+                  style: const TextStyle(fontSize:36, fontWeight:FontWeight.w900,
+                    color:AppColors.teal)),
+                Text('for \${widget.service['name'] ?? 'service'}',
+                  style: const TextStyle(fontSize:12, color:AppColors.muted)),
+              ])),
+            const SizedBox(height:14),
+            // Counter offer input
+            TextField(
+              controller: counterCtrl,
+              keyboardType: TextInputType.number,
+              decoration: InputDecoration(
+                labelText: 'Your counter offer (optional)',
+                prefixText: '₹ ',
+                hintText: 'Enter your price',
+                helperText: 'Leave empty to accept or negotiate',
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12))),
+            ),
+          ]),
+          actions: [
+            // Search another provider
+            TextButton.icon(
+              onPressed: () {
+                Navigator.pop(ctx);
+                _searchAnother(bookingData);
+              },
+              icon: const Icon(Icons.search_rounded, size:16, color:AppColors.muted),
+              label: const Text('Search Another',
+                style: TextStyle(color:AppColors.muted, fontSize:12))),
+            // Negotiate
+            if (counterCtrl.text.isEmpty)
+              TextButton(
+                onPressed: () async {
+                  final counter = int.tryParse(counterCtrl.text.trim()) ?? 0;
+                  Navigator.pop(ctx);
+                  await _sendNegotiation(counter > 0 ? counter : null, bookingData);
+                },
+                child: const Text('Negotiate',
+                  style: TextStyle(color:AppColors.brand, fontWeight:FontWeight.w700))),
+            // Accept
+            ElevatedButton(
+              onPressed: () async {
+                Navigator.pop(ctx);
+                await _confirmPrice(quotedPrice, bookingData);
+              },
+              style: ElevatedButton.styleFrom(backgroundColor:AppColors.teal),
+              child: Text('Accept ₹$quotedPrice',
+                style: const TextStyle(color:Colors.white, fontWeight:FontWeight.w700))),
+          ],
+        )),
+    );
+  }
+
+  // Customer sends counter offer to provider
+  Future<void> _sendNegotiation(int? counterPrice, Map<String,dynamic> bookingData) async {
+    try {
+      final updates = {
+        'negotiationStatus': 'customer_countered',
+        'status': 'negotiating',
+        if (counterPrice != null && counterPrice > 0) 'counterPrice': counterPrice,
+        'negotiatedAt': DateTime.now().toIso8601String(),
+      };
+      await FirebaseDatabase.instance.ref('active_bookings/\${widget.bookingId}').update(updates);
+      await FirebaseDatabase.instance.ref('bookings/\${widget.bookingId}').update(updates);
+
+      // Notify provider
+      final provId = bookingData['providerId']?.toString() ?? '';
+      if (provId.isNotEmpty) {
+        final tokenSnap = await FirebaseDatabase.instance.ref('providers/\$provId/fcmToken').get();
+        final token = tokenSnap.value?.toString() ?? '';
+        if (token.isNotEmpty) {
+          await http.post(
+            Uri.parse('https://notifybooking-mlchyp6tra-as.a.run.app'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'event': 'price_negotiation',
+              'fcmToken': token,
+              'title': '💬 Customer is Negotiating',
+              'body': counterPrice != null && counterPrice > 0
+                  ? 'Customer countered with ₹\$counterPrice. Send your final offer.'
+                  : 'Customer wants a better price. Send your final offer.',
+              'data': {
+                'bookingId': widget.bookingId,
+                'counterPrice': counterPrice?.toString() ?? '0',
+              },
+            }),
+          );
+        }
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Negotiation sent. Waiting for provider response...'),
+          backgroundColor: AppColors.teal));
+        // Restart listening for provider's final offer
+        setState(() { _radarActive = true; });
+        _startListening();
+      }
+    } catch (e) {
+      if (mounted) toast('Error: \$e');
+    }
+  }
+
+  // Customer accepts quoted price — confirmed
+  Future<void> _confirmPrice(int price, Map<String,dynamic> bookingData) async {
+    try {
+      final updates = {
+        'status': 'accepted',
+        'negotiationStatus': 'confirmed',
+        'confirmedPrice': price,
+        'finalPrice': price,
+        'confirmedAt': DateTime.now().toIso8601String(),
+      };
+      await FirebaseDatabase.instance.ref('active_bookings/\${widget.bookingId}').update(updates);
+      await FirebaseDatabase.instance.ref('bookings/\${widget.bookingId}').update(updates);
+      _providerAccepted();
+    } catch (e) {
+      if (mounted) toast('Error: \$e');
+    }
+  }
+
+  // Show provider's final offer
+  void _showFinalOffer(int finalPrice, String providerName) {
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text('Final Offer from Provider',
+          style: TextStyle(fontSize:17, fontWeight:FontWeight.w800)),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          Text('$providerName has sent their final offer:',
+            style: const TextStyle(fontSize:13, color:AppColors.muted)),
+          const SizedBox(height:14),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: AppColors.brand.withOpacity(0.08),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: AppColors.brand.withOpacity(0.3))),
+            child: Column(children: [
+              const Text('FINAL PRICE', style: TextStyle(fontSize:11,
+                fontWeight:FontWeight.w800, color:AppColors.muted, letterSpacing:.5)),
+              const SizedBox(height:6),
+              Text('₹$finalPrice',
+                style: const TextStyle(fontSize:36, fontWeight:FontWeight.w900,
+                  color:AppColors.brand)),
+              const Text('This is their final price — no further negotiation',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize:11, color:AppColors.muted)),
+            ])),
+        ]),
+        actions: [
+          TextButton.icon(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _searchAnother(null);
+            },
+            icon: const Icon(Icons.search_rounded, size:16, color:AppColors.muted),
+            label: const Text('Search Another',
+              style: TextStyle(color:AppColors.muted, fontSize:12))),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await _confirmPrice(finalPrice, {});
+            },
+            style: ElevatedButton.styleFrom(backgroundColor:AppColors.teal),
+            child: Text('Accept ₹$finalPrice',
+              style: const TextStyle(color:Colors.white, fontWeight:FontWeight.w700))),
+        ],
+      ),
+    );
+  }
+
+  // Release current provider and search again
+  Future<void> _searchAnother(Map<String,dynamic>? currentBooking) async {
+    try {
+      await FirebaseDatabase.instance.ref('active_bookings/\${widget.bookingId}').update({
+        'acceptedBy': null,
+        'status': 'active',
+        'providerId': null,
+        'quotedPrice': null,
+        'negotiationStatus': null,
+        'searchingAgain': true,
+        'searchAgainAt': DateTime.now().toIso8601String(),
+      });
+      await FirebaseDatabase.instance.ref('bookings/\${widget.bookingId}').update({
+        'status': 'active',
+        'searchingAgain': true,
+      });
+      if (mounted) {
+        setState(() { _radarActive = true; _navigating = false; });
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('🔍 Searching for another provider...'),
+          backgroundColor: AppColors.teal));
+        _startListening();
+      }
+    } catch (e) {
+      if (mounted) toast('Error: \$e');
+    }
+  }
+
+  void toast(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
   void _providerAccepted() async {

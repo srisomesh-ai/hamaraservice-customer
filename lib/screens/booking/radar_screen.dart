@@ -312,16 +312,15 @@ class _RadarScreenState extends State<RadarScreen>
               icon: const Icon(Icons.search_rounded, size:16, color:AppColors.muted),
               label: const Text('Search Another',
                 style: TextStyle(color:AppColors.muted, fontSize:12))),
-            // Negotiate
-            if (counterCtrl.text.isEmpty)
-              TextButton(
-                onPressed: () async {
-                  final counter = int.tryParse(counterCtrl.text.trim()) ?? 0;
-                  Navigator.pop(ctx);
-                  await _sendNegotiation(counter > 0 ? counter : null, bookingData);
-                },
-                child: const Text('Negotiate',
-                  style: TextStyle(color:AppColors.brand, fontWeight:FontWeight.w700))),
+            // Negotiate — always visible, sends counter if filled
+            TextButton(
+              onPressed: () async {
+                final counter = int.tryParse(counterCtrl.text.trim()) ?? 0;
+                Navigator.pop(ctx);
+                await _sendNegotiation(counter > 0 ? counter : null, bookingData);
+              },
+              child: const Text('Negotiate 💬',
+                style: TextStyle(color:AppColors.brand, fontWeight:FontWeight.w700))),
             // Accept
             ElevatedButton(
               onPressed: () async {

@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:local_auth/local_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../utils/theme.dart';
 import '../services/firebase_service.dart';
 import 'home_screen.dart';
@@ -11,25 +14,89 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final _emailCtrl = TextEditingController();
-  final _pwdCtrl   = TextEditingController();
-  final _nameCtrl  = TextEditingController();
-  bool _loading    = false;
-  bool _isRegister = false;
-  bool _showPwd    = false;
-  String _error    = '';
+  final _emailCtrl  = TextEditingController();
+  final _pwdCtrl    = TextEditingController();
+  final _nameCtrl   = TextEditingController();
+  final _localAuth  = LocalAuthentication();
+  bool _loading     = false;
+  bool _isRegister  = false;
+  bool _showPwd     = false;
+  bool _bioAvail    = false;
+  bool _bioEnabled  = false;
+  String _error     = '';
 
+  @override
+  void initState() {
+    super.initState();
+    _checkBiometrics();
+  }
+
+  // ── Biometric Setup ───────────────────────────────────────────────────────
+  Future<void> _checkBiometrics() async {
+    try {
+      final canCheck = await _localAuth.canCheckBiometrics;
+      final isSupported = await _localAuth.isDeviceSupported();
+      if (!mounted) return;
+      setState(() => _bioAvail = canCheck && isSupported);
+      if (_bioAvail) {
+        final prefs = await SharedPreferences.getInstance();
+        setState(() => _bioEnabled = prefs.getBool('bio_enabled') ?? false);
+        // Auto-trigger if enabled
+        if (_bioEnabled) _biometricLogin();
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _biometricLogin() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedEmail = prefs.getString('saved_email') ?? '';
+      final savedPwd   = prefs.getString('saved_pwd')   ?? '';
+      if (savedEmail.isEmpty || savedPwd.isEmpty) {
+        setState(() => _error = 'Please sign in once with email/password first to enable biometric login.');
+        return;
+      }
+      final auth = await _localAuth.authenticate(
+        localizedReason: 'Verify your identity to sign in',
+        options: const AuthenticationOptions(
+          biometricOnly: false,
+          stickyAuth: true,
+          useErrorDialogs: true,
+        ),
+      );
+      if (!auth) return;
+      setState(() { _loading = true; _error = ''; });
+      await FirebaseAuth.instance.signInWithEmailAndPassword(email: savedEmail, password: savedPwd);
+      if (mounted) Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const HomeScreen()));
+    } on PlatformException catch (e) {
+      setState(() { _loading = false; _error = 'Biometric failed: \${e.message}'; });
+    } catch (e) {
+      setState(() { _loading = false; _error = 'Login failed. Try email/password.'; });
+    }
+  }
+
+  // ── Google Sign In ────────────────────────────────────────────────────────
   Future<void> _signInGoogle() async {
     setState(() { _loading = true; _error = ''; });
     try {
       final result = await FirebaseService.signInWithGoogle();
       if (result == null) { setState(() { _loading = false; }); return; }
+      // Save a marker so biometric knows Google was used
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('saved_email', result.user?.email ?? '');
+      await prefs.setString('auth_method', 'google');
       if (mounted) Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const HomeScreen()));
     } catch (e) {
-      setState(() { _loading = false; _error = 'Google sign in failed. Try again.'; });
+      setState(() {
+        _loading = false;
+        _error = e.toString().contains('sign_in_failed')
+            ? 'Google Sign-In failed. Make sure SHA-1 is added in Firebase Console.'
+            : 'Google sign-in failed. Please try email/password.';
+      });
     }
   }
 
+  // ── Email Sign In ─────────────────────────────────────────────────────────
   Future<void> _signInEmail() async {
     final email = _emailCtrl.text.trim();
     final pwd   = _pwdCtrl.text;
@@ -37,19 +104,30 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() { _loading = true; _error = ''; });
     try {
       await FirebaseAuth.instance.signInWithEmailAndPassword(email: email, password: pwd);
+      // Save for biometric
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('saved_email', email);
+      await prefs.setString('saved_pwd', pwd);
+      await prefs.setString('auth_method', 'email');
+      // Enable biometric if available
+      if (_bioAvail) {
+        await prefs.setBool('bio_enabled', true);
+        setState(() => _bioEnabled = true);
+      }
       if (mounted) Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const HomeScreen()));
     } on FirebaseAuthException catch (e) {
       final msgs = {
-        'user-not-found': 'No account with this email. Please register.',
-        'wrong-password': 'Incorrect password. Try again.',
-        'invalid-email':  'Invalid email format.',
-        'too-many-requests': 'Too many attempts. Please wait.',
+        'user-not-found':     'No account with this email. Please register.',
+        'wrong-password':     'Incorrect password. Try again.',
+        'invalid-email':      'Invalid email format.',
+        'too-many-requests':  'Too many attempts. Please wait.',
         'invalid-credential': 'Incorrect email or password.',
       };
       setState(() { _loading = false; _error = msgs[e.code] ?? 'Sign in failed. Try again.'; });
     }
   }
 
+  // ── Register ──────────────────────────────────────────────────────────────
   Future<void> _register() async {
     final email = _emailCtrl.text.trim();
     final pwd   = _pwdCtrl.text;
@@ -61,6 +139,14 @@ class _LoginScreenState extends State<LoginScreen> {
     try {
       final cred = await FirebaseAuth.instance.createUserWithEmailAndPassword(email: email, password: pwd);
       await cred.user?.updateDisplayName(name);
+      // Save for biometric
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('saved_email', email);
+      await prefs.setString('saved_pwd', pwd);
+      if (_bioAvail) {
+        await prefs.setBool('bio_enabled', true);
+        setState(() => _bioEnabled = true);
+      }
       if (mounted) Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const HomeScreen()));
     } on FirebaseAuthException catch (e) {
       final msgs = {
@@ -72,6 +158,7 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  // ── Forgot Password ───────────────────────────────────────────────────────
   Future<void> _forgotPassword() async {
     final email = _emailCtrl.text.trim();
     if (email.isEmpty) { setState(() => _error = 'Enter your email first'); return; }
@@ -106,12 +193,11 @@ class _LoginScreenState extends State<LoginScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 24),
             child: Column(
               children: [
-                const SizedBox(height: 60),
+                const SizedBox(height: 52),
                 Container(
                   width: 80, height: 80,
                   decoration: BoxDecoration(
-                    color: AppColors.brand,
-                    borderRadius: BorderRadius.circular(20),
+                    color: AppColors.brand, borderRadius: BorderRadius.circular(20),
                     boxShadow: [BoxShadow(color: AppColors.brand.withOpacity(0.4), blurRadius: 20, offset: const Offset(0, 8))],
                   ),
                   child: const Icon(Icons.home_rounded, color: Colors.white, size: 44),
@@ -123,12 +209,11 @@ class _LoginScreenState extends State<LoginScreen> {
                 ])),
                 const SizedBox(height: 4),
                 const Text('Home services at your doorstep', style: TextStyle(fontSize: 13, color: Colors.white70)),
-                const SizedBox(height: 36),
+                const SizedBox(height: 32),
                 Container(
                   padding: const EdgeInsets.all(24),
                   decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(24),
+                    color: Colors.white, borderRadius: BorderRadius.circular(24),
                     boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 24, offset: const Offset(0, 8))],
                   ),
                   child: Column(
@@ -145,10 +230,9 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                       const SizedBox(height: 20),
 
-                      // Google button
+                      // ── Google Button ──────────────────────────────────
                       SizedBox(
-                        width: double.infinity,
-                        height: 48,
+                        width: double.infinity, height: 48,
                         child: OutlinedButton(
                           onPressed: _loading ? null : _signInGoogle,
                           style: OutlinedButton.styleFrom(
@@ -160,9 +244,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             children: [
                               Container(
                                 width: 22, height: 22,
-                                decoration: BoxDecoration(
-                                  color: AppColors.tealSoft,
-                                  borderRadius: BorderRadius.circular(4)),
+                                decoration: BoxDecoration(color: AppColors.tealSoft, borderRadius: BorderRadius.circular(4)),
                                 child: const Icon(Icons.g_mobiledata_rounded, size: 18, color: AppColors.teal)),
                               const SizedBox(width: 10),
                               const Text('Continue with Google', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.ink)),
@@ -170,6 +252,33 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                         ),
                       ),
+
+                      // ── Biometric Button ───────────────────────────────
+                      if (_bioAvail && !_isRegister) ...[ 
+                        const SizedBox(height: 10),
+                        SizedBox(
+                          width: double.infinity, height: 48,
+                          child: OutlinedButton(
+                            onPressed: _loading ? null : _biometricLogin,
+                            style: OutlinedButton.styleFrom(
+                              side: BorderSide(color: AppColors.teal.withOpacity(0.4), width: 1.5),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              backgroundColor: AppColors.tealSoft,
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.fingerprint_rounded, color: AppColors.teal, size: 22),
+                                const SizedBox(width: 10),
+                                Text(
+                                  _bioEnabled ? 'Sign in with Fingerprint' : 'Set Up Biometric Login',
+                                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.teal),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
 
                       const SizedBox(height: 16),
                       Row(children: [
@@ -179,7 +288,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       ]),
                       const SizedBox(height: 16),
 
-                      // Name field (register only)
+                      // ── Name (register only) ───────────────────────────
                       if (_isRegister) ...[
                         const Text('Full Name', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.ink2)),
                         const SizedBox(height: 6),
@@ -190,7 +299,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         const SizedBox(height: 12),
                       ],
 
-                      // Email
+                      // ── Email ──────────────────────────────────────────
                       const Text('Email', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.ink2)),
                       const SizedBox(height: 6),
                       TextField(
@@ -200,7 +309,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                       const SizedBox(height: 12),
 
-                      // Password
+                      // ── Password ───────────────────────────────────────
                       const Text('Password', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.ink2)),
                       const SizedBox(height: 6),
                       TextField(
@@ -216,7 +325,6 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                       ),
 
-                      // Forgot password
                       if (!_isRegister) ...[
                         const SizedBox(height: 8),
                         Align(
@@ -229,12 +337,14 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                       ],
 
-                      // Error
+                      // ── Error ──────────────────────────────────────────
                       if (_error.isNotEmpty) ...[
                         const SizedBox(height: 10),
                         Container(
                           padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(color: const Color(0xFFFFF5F5), borderRadius: BorderRadius.circular(10), border: Border.all(color: const Color(0xFFFC8181))),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFFF5F5), borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: const Color(0xFFFC8181))),
                           child: Row(children: [
                             const Icon(Icons.error_outline, color: Color(0xFFE53E3E), size: 16),
                             const SizedBox(width: 8),
@@ -245,10 +355,9 @@ class _LoginScreenState extends State<LoginScreen> {
 
                       const SizedBox(height: 20),
 
-                      // Main button
+                      // ── Main Button ────────────────────────────────────
                       SizedBox(
-                        width: double.infinity,
-                        height: 50,
+                        width: double.infinity, height: 50,
                         child: ElevatedButton(
                           onPressed: _loading ? null : (_isRegister ? _register : _signInEmail),
                           child: _loading
@@ -258,8 +367,6 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
 
                       const SizedBox(height: 16),
-
-                      // Toggle register/login
                       Center(
                         child: TextButton(
                           onPressed: () => setState(() { _isRegister = !_isRegister; _error = ''; }),

@@ -35,11 +35,26 @@ class _ServiceScreenState extends State<ServiceScreen> {
     _svc = HSCatalog.getById(widget.svcId);
     if (_svc == null) { setState(() => _loading = false); return; }
     try {
+      // Web saves: hs_service_prices/{svcId}/{groupKey}/{optKey} = price
+      // App needs flat map: {groupKey_optKey: price}
       final snap = await FirebaseDatabase.instance
-          .ref('hs_service_prices/${widget.svcId}/prices').get();
-      if (snap.exists) {
-        final data = Map<String, dynamic>.from(snap.value as Map);
-        _prices = data.map((k, v) => MapEntry(k, (v is int) ? v : (v is double) ? v.toInt() : 0));
+          .ref('hs_service_prices/${widget.svcId}').get();
+      if (snap.exists && snap.value is Map) {
+        final root = Map<String, dynamic>.from(snap.value as Map);
+        final flat = <String, int>{};
+        root.forEach((groupKey, groupVal) {
+          if (groupVal is Map) {
+            // group level: { '1bhk': 999, '2bhk': 1499 }
+            Map<String, dynamic>.from(groupVal).forEach((optKey, price) {
+              if (price is int || price is double) {
+                flat['${groupKey}_$optKey'] = price is int ? price : (price as double).toInt();
+              }
+            });
+          } else if (groupKey == 'base' && (groupVal is int || groupVal is double)) {
+            flat['base'] = groupVal is int ? groupVal : (groupVal as double).toInt();
+          }
+        });
+        _prices = flat;
       }
     } catch (_) {}
     // For visit-only services auto-select first option

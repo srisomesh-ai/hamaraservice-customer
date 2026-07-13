@@ -74,7 +74,7 @@ class _LoginScreenState extends State<LoginScreen> {
       await FirebaseAuth.instance.signInWithEmailAndPassword(email: savedEmail, password: savedPwd);
       if (mounted) Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const HomeScreen()));
     } on PlatformException catch (e) {
-      setState(() { _loading = false; _error = 'Biometric failed: \${e.message}'; });
+      setState(() { _loading = false; _error = 'Biometric failed: ${e.message}'; });
     } catch (e) {
       setState(() { _loading = false; _error = 'Login failed. Try email/password.'; });
     }
@@ -149,7 +149,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
       // Save full profile to Firebase
       final uid = cred.user!.uid;
-      await FirebaseDatabase.instance.ref('customers/\$uid').set({
+      await FirebaseDatabase.instance.ref('customers/$uid').set({
         'uid':       uid,
         'name':      name,
         'email':     email,

@@ -275,7 +275,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         final status = data['status']?.toString() ?? '';
         final otp = data['otp']?.toString() ?? '';
         final bookingId = data['bookingId']?.toString() ?? entry.key;
-        if (status == 'waiting' && otp.isNotEmpty && !_showAppOtpPopup) {
+        if (status == 'waiting' && otp.isNotEmpty) {
+          // Show popup — also handles resent OTP (even if popup already shown)
           setState(() {
             _showAppOtpPopup = true;
             _appOtpCode = otp;

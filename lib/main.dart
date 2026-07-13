@@ -43,7 +43,7 @@ void main() async {
       announcement: true,
       provisional: false,
     );
-    print('FCM permission: \${settings.authorizationStatus}');
+    print('FCM permission: ${settings.authorizationStatus}');
 
     await FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(
       alert: true, badge: true, sound: true);
@@ -75,13 +75,13 @@ void main() async {
 
     // Handle notification tap from background
     FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
-      print('Notification tapped: \${message.data}');
+      print('Notification tapped: ${message.data}');
     });
 
     // App opened from terminated via notification
     final initialMessage = await FirebaseMessaging.instance.getInitialMessage();
     if (initialMessage != null) {
-      print('Opened from notification: \${initialMessage.data}');
+      print('Opened from notification: ${initialMessage.data}');
     }
 
     // Save FCM token
@@ -89,7 +89,7 @@ void main() async {
       try {
         final token = await FirebaseMessaging.instance.getToken();
         if (token != null && token.isNotEmpty) {
-          await FirebaseDatabase.instance.ref('customers/\$uid/fcmToken').set(token);
+          await FirebaseDatabase.instance.ref('customers/$uid/fcmToken').set(token);
         }
       } catch (_) {}
     }
@@ -111,7 +111,7 @@ void main() async {
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
         await FirebaseDatabase.instance
-            .ref('customers/\${user.uid}/fcmToken').set(token);
+            .ref('customers/${user.uid}/fcmToken').set(token);
       }
     });
 
@@ -139,7 +139,7 @@ Future<void> _requestAndSaveLocation(String uid) async {
             placemarks.first.subAdministrativeArea ?? '';
       }
     } catch (_) {}
-    await FirebaseDatabase.instance.ref('customers/\$uid').update({
+    await FirebaseDatabase.instance.ref('customers/$uid').update({
       'lat': pos.latitude,
       'lng': pos.longitude,
       if (city.isNotEmpty) 'city': city,

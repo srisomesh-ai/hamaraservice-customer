@@ -172,7 +172,7 @@ class _RadarScreenState extends State<RadarScreen>
       }
       try {
         final snap = await FirebaseDatabase.instance
-            .ref('active_bookings/\${widget.bookingId}')
+            .ref('active_bookings/${widget.bookingId}')
             .get();
         if (!snap.exists || snap.value == null) { i += 9; i++; continue; }
         final bkData = Map<String,dynamic>.from(snap.value as Map);
@@ -286,7 +286,7 @@ class _RadarScreenState extends State<RadarScreen>
                 Text('₹$quotedPrice',
                   style: const TextStyle(fontSize:36, fontWeight:FontWeight.w900,
                     color:AppColors.teal)),
-                Text('for \${widget.service['name'] ?? 'service'}',
+                Text('for ${widget.service['name'] ?? 'service'}',
                   style: const TextStyle(fontSize:12, color:AppColors.muted)),
               ])),
             const SizedBox(height:14),
@@ -344,13 +344,13 @@ class _RadarScreenState extends State<RadarScreen>
         if (counterPrice != null && counterPrice > 0) 'counterPrice': counterPrice,
         'negotiatedAt': DateTime.now().toIso8601String(),
       };
-      await FirebaseDatabase.instance.ref('active_bookings/\${widget.bookingId}').update(updates);
-      await FirebaseDatabase.instance.ref('bookings/\${widget.bookingId}').update(updates);
+      await FirebaseDatabase.instance.ref('active_bookings/${widget.bookingId}').update(updates);
+      await FirebaseDatabase.instance.ref('bookings/${widget.bookingId}').update(updates);
 
       // Notify provider
       final provId = bookingData['providerId']?.toString() ?? '';
       if (provId.isNotEmpty) {
-        final tokenSnap = await FirebaseDatabase.instance.ref('providers/\$provId/fcmToken').get();
+        final tokenSnap = await FirebaseDatabase.instance.ref('providers/$provId/fcmToken').get();
         final token = tokenSnap.value?.toString() ?? '';
         if (token.isNotEmpty) {
           await http.post(
@@ -361,7 +361,7 @@ class _RadarScreenState extends State<RadarScreen>
               'fcmToken': token,
               'title': '💬 Customer is Negotiating',
               'body': counterPrice != null && counterPrice > 0
-                  ? 'Customer countered with ₹\$counterPrice. Send your final offer.'
+                  ? 'Customer countered with ₹$counterPrice. Send your final offer.'
                   : 'Customer wants a better price. Send your final offer.',
               'data': {
                 'bookingId': widget.bookingId,
@@ -380,7 +380,7 @@ class _RadarScreenState extends State<RadarScreen>
         _startListening();
       }
     } catch (e) {
-      if (mounted) toast('Error: \$e');
+      if (mounted) toast('Error: $e');
     }
   }
 
@@ -394,11 +394,11 @@ class _RadarScreenState extends State<RadarScreen>
         'finalPrice': price,
         'confirmedAt': DateTime.now().toIso8601String(),
       };
-      await FirebaseDatabase.instance.ref('active_bookings/\${widget.bookingId}').update(updates);
-      await FirebaseDatabase.instance.ref('bookings/\${widget.bookingId}').update(updates);
+      await FirebaseDatabase.instance.ref('active_bookings/${widget.bookingId}').update(updates);
+      await FirebaseDatabase.instance.ref('bookings/${widget.bookingId}').update(updates);
       _providerAccepted();
     } catch (e) {
-      if (mounted) toast('Error: \$e');
+      if (mounted) toast('Error: $e');
     }
   }
 
@@ -459,7 +459,7 @@ class _RadarScreenState extends State<RadarScreen>
   // Release current provider and search again
   Future<void> _searchAnother(Map<String,dynamic>? currentBooking) async {
     try {
-      await FirebaseDatabase.instance.ref('active_bookings/\${widget.bookingId}').update({
+      await FirebaseDatabase.instance.ref('active_bookings/${widget.bookingId}').update({
         'acceptedBy': null,
         'status': 'active',
         'providerId': null,
@@ -468,7 +468,7 @@ class _RadarScreenState extends State<RadarScreen>
         'searchingAgain': true,
         'searchAgainAt': DateTime.now().toIso8601String(),
       });
-      await FirebaseDatabase.instance.ref('bookings/\${widget.bookingId}').update({
+      await FirebaseDatabase.instance.ref('bookings/${widget.bookingId}').update({
         'status': 'active',
         'searchingAgain': true,
       });
@@ -480,7 +480,7 @@ class _RadarScreenState extends State<RadarScreen>
         _startListening();
       }
     } catch (e) {
-      if (mounted) toast('Error: \$e');
+      if (mounted) toast('Error: $e');
     }
   }
 

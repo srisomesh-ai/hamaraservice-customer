@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_database/firebase_database.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../utils/theme.dart';
@@ -14,16 +15,20 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final _emailCtrl  = TextEditingController();
-  final _pwdCtrl    = TextEditingController();
-  final _nameCtrl   = TextEditingController();
-  final _localAuth  = LocalAuthentication();
-  bool _loading     = false;
-  bool _isRegister  = false;
-  bool _showPwd     = false;
-  bool _bioAvail    = false;
-  bool _bioEnabled  = false;
-  String _error     = '';
+  final _emailCtrl   = TextEditingController();
+  final _pwdCtrl     = TextEditingController();
+  final _nameCtrl    = TextEditingController();
+  final _phoneCtrl   = TextEditingController();
+  final _addressCtrl = TextEditingController();
+  final _cityCtrl    = TextEditingController();
+  final _localAuth   = LocalAuthentication();
+  bool _loading      = false;
+  bool _isRegister   = false;
+  bool _showPwd      = false;
+  bool _bioAvail     = false;
+  bool _bioEnabled   = false;
+  String _gender     = 'Male';
+  String _error      = '';
 
   @override
   void initState() {
@@ -132,13 +137,30 @@ class _LoginScreenState extends State<LoginScreen> {
     final email = _emailCtrl.text.trim();
     final pwd   = _pwdCtrl.text;
     final name  = _nameCtrl.text.trim();
-    if (name.isEmpty) { setState(() => _error = 'Enter your name'); return; }
+    if (name.isEmpty) { setState(() => _error = 'Enter your full name'); return; }
+    final phone = _phoneCtrl.text.trim();
+    if (phone.isEmpty || phone.length < 10) { setState(() => _error = 'Enter a valid 10-digit mobile number'); return; }
     if (email.isEmpty || pwd.isEmpty) { setState(() => _error = 'Enter email and password'); return; }
     if (pwd.length < 8) { setState(() => _error = 'Password must be at least 8 characters'); return; }
     setState(() { _loading = true; _error = ''; });
     try {
       final cred = await FirebaseAuth.instance.createUserWithEmailAndPassword(email: email, password: pwd);
       await cred.user?.updateDisplayName(name);
+
+      // Save full profile to Firebase
+      final uid = cred.user!.uid;
+      await FirebaseDatabase.instance.ref('customers/\$uid').set({
+        'uid':       uid,
+        'name':      name,
+        'email':     email,
+        'phone':     _phoneCtrl.text.trim(),
+        'gender':    _gender,
+        'address':   _addressCtrl.text.trim(),
+        'city':      _cityCtrl.text.trim(),
+        'createdAt': DateTime.now().toIso8601String(),
+        'wallet':    0,
+      });
+
       // Save for biometric
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('saved_email', email);
@@ -176,7 +198,11 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   @override
-  void dispose() { _emailCtrl.dispose(); _pwdCtrl.dispose(); _nameCtrl.dispose(); super.dispose(); }
+  void dispose() {
+    _emailCtrl.dispose(); _pwdCtrl.dispose(); _nameCtrl.dispose();
+    _phoneCtrl.dispose(); _addressCtrl.dispose(); _cityCtrl.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -290,11 +316,82 @@ class _LoginScreenState extends State<LoginScreen> {
 
                       // ── Name (register only) ───────────────────────────
                       if (_isRegister) ...[
-                        const Text('Full Name', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.ink2)),
+                        // Full Name
+                        const Text('Full Name *', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.ink2)),
                         const SizedBox(height: 6),
                         TextField(
                           controller: _nameCtrl,
-                          decoration: InputDecoration(hintText: 'Your full name', border: OutlineInputBorder(borderRadius: BorderRadius.circular(12))),
+                          textCapitalization: TextCapitalization.words,
+                          decoration: InputDecoration(
+                            hintText: 'Your full name',
+                            prefixIcon: const Icon(Icons.person_outline_rounded, color: AppColors.muted),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12))),
+                        ),
+                        const SizedBox(height: 12),
+
+                        // Phone
+                        const Text('Mobile Number *', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.ink2)),
+                        const SizedBox(height: 6),
+                        TextField(
+                          controller: _phoneCtrl,
+                          keyboardType: TextInputType.phone,
+                          maxLength: 10,
+                          decoration: InputDecoration(
+                            hintText: '10-digit mobile number',
+                            counterText: '',
+                            prefixIcon: const Icon(Icons.phone_outlined, color: AppColors.muted),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12))),
+                        ),
+                        const SizedBox(height: 12),
+
+                        // Gender
+                        const Text('Gender', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.ink2)),
+                        const SizedBox(height: 8),
+                        Row(children: ['Male', 'Female', 'Other'].map((g) => Expanded(
+                          child: Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: GestureDetector(
+                              onTap: () => setState(() => _gender = g),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(vertical: 10),
+                                decoration: BoxDecoration(
+                                  border: Border.all(
+                                    color: _gender == g ? AppColors.teal : AppColors.line,
+                                    width: _gender == g ? 2 : 1.5),
+                                  borderRadius: BorderRadius.circular(10),
+                                  color: _gender == g ? AppColors.tealSoft : Colors.white),
+                                child: Text(g,
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    fontSize: 13, fontWeight: FontWeight.w700,
+                                    color: _gender == g ? AppColors.teal : AppColors.muted)),
+                              ),
+                            ),
+                          ),
+                        )).toList()),
+                        const SizedBox(height: 12),
+
+                        // Address
+                        const Text('Address', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.ink2)),
+                        const SizedBox(height: 6),
+                        TextField(
+                          controller: _addressCtrl,
+                          decoration: InputDecoration(
+                            hintText: 'House no, Street, Area',
+                            prefixIcon: const Icon(Icons.home_outlined, color: AppColors.muted),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12))),
+                        ),
+                        const SizedBox(height: 12),
+
+                        // City
+                        const Text('City', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.ink2)),
+                        const SizedBox(height: 6),
+                        TextField(
+                          controller: _cityCtrl,
+                          decoration: InputDecoration(
+                            hintText: 'Your city',
+                            prefixIcon: const Icon(Icons.location_city_outlined, color: AppColors.muted),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12))),
                         ),
                         const SizedBox(height: 12),
                       ],

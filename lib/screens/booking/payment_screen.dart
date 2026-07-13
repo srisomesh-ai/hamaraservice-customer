@@ -50,7 +50,8 @@ class _PaymentScreenState extends State<PaymentScreen> {
     } catch (_) {}
   }
 
-  int get _baseAmount => ((widget.booking['priceVal'] ?? widget.booking['price'] ?? 0) as num).toInt();
+  // confirmedPrice = negotiated & agreed price; fallback to priceVal for non-negotiated bookings
+  int get _baseAmount => ((widget.booking['confirmedPrice'] ?? widget.booking['priceVal'] ?? widget.booking['price'] ?? 0) as num).toInt();
   int get _totalAmount => _baseAmount + _pendingPenalty;
 
   void _onSuccess(PaymentSuccessResponse r) async {

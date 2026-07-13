@@ -176,8 +176,78 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         await prefs.setString('user_city', city);
         setState(() => _city = city);
         HapticFeedback.selectionClick();
+        // Show welcome popup only on first location detect
+        final shown = prefs.getBool('welcome_popup_shown') ?? false;
+        if (!shown && mounted) {
+          await prefs.setBool('welcome_popup_shown', true);
+          _showWelcomePopup(city);
+        }
       }
     } catch (_) {}
+  }
+
+  void _showWelcomePopup(String city) {
+    HapticFeedback.mediumImpact();
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(24),
+            gradient: const LinearGradient(
+              begin: Alignment.topLeft, end: Alignment.bottomRight,
+              colors: [Color(0xFF0D3D47), AppColors.teal],
+            ),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('🎉', style: TextStyle(fontSize: 52)),
+              const SizedBox(height: 12),
+              const Text(
+                'Congratulations!',
+                style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: Colors.white),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'We have the best service providers in $city ready for you!',
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 14, color: Colors.white70, height: 1.5),
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                'Are you excited? 🚀',
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Colors.white),
+              ),
+              const SizedBox(height: 22),
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: ElevatedButton(
+                  onPressed: () {
+                    HapticFeedback.lightImpact();
+                    Navigator.of(ctx).pop();
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.brand,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    elevation: 0,
+                  ),
+                  child: const Text(
+                    "Yes! Let's Go 🎊",
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   @override

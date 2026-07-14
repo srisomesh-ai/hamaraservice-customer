@@ -157,7 +157,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           final name = profile['name']?.toString() ?? '';
           if (mounted) setState(() {
             if (city.isNotEmpty) _city = city;
-            if (name.isNotEmpty) _name = name;
           });
           if (city.isNotEmpty) await prefs.setString('user_city', city);
           await ApiService.saveCurrentUser(profile);

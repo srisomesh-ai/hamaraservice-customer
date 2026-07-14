@@ -70,7 +70,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
       }
     }
 
-      for (final b in mine) {
+      for (final b in _bookings) {
         final id = b['id'] as String? ?? '';
         if (id.isEmpty) continue;
         if (['active','otp_sent','accepted','payment_pending'].contains(b['status'])) {

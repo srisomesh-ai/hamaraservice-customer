@@ -58,14 +58,10 @@ class _PaymentScreenState extends State<PaymentScreen> {
     setState(() => _loading = true);
     try {
       // Complete booking in MySQL — handles status, commission, provider earnings + FCM
-      await http.post(
-        Uri.parse('https://hamaraservice.com/api/bookings.php?action=complete'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'booking_id':          widget.bookingId,
-          'razorpay_payment_id': r.paymentId ?? '',
-          'razorpay_order_id':   r.orderId  ?? '',
-        }),
+      await ApiService.completeBooking(
+        bookingId:           widget.bookingId,
+        razorpayPaymentId:   r.paymentId ?? '',
+        razorpayOrderId:     r.orderId   ?? '',
       );
       // FCM notification to provider sent by MySQL bookings API
       // Server verify (non-blocking)

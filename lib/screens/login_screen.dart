@@ -156,19 +156,17 @@ class _LoginScreenState extends State<LoginScreen> {
       final cred = await FirebaseAuth.instance.createUserWithEmailAndPassword(email: email, password: pwd);
       await cred.user?.updateDisplayName(name);
 
-      // Save full profile to Firebase
+      // Save full profile to MySQL
       final uid = cred.user!.uid;
-      await FirebaseDatabase.instance.ref('customers/$uid').set({
-        'uid':       uid,
-        'name':      name,
-        'email':     email,
-        'phone':     _phoneCtrl.text.trim(),
-        'gender':    _gender,
-        'address':   _addressCtrl.text.trim(),
-        'city':      _cityCtrl.text.trim(),
-        'createdAt': DateTime.now().toIso8601String(),
-        'wallet':    0,
-      });
+      final customer = await ApiService.registerCustomer(
+        name:       name,
+        phone:      _phoneCtrl.text.trim(),
+        gender:     _gender,
+        address:    _addressCtrl.text.trim(),
+        city:       _cityCtrl.text.trim(),
+        authMethod: 'email',
+      );
+      if (customer != null) await ApiService.saveCurrentUser(customer);
 
       // Save for biometric
       final prefs = await SharedPreferences.getInstance();

@@ -124,7 +124,7 @@ void main() async {
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
         await FirebaseDatabase.instance
-            .ref('customers/\${user.uid}/fcmToken').set(token);
+            .ref('customers/${user.uid}/fcmToken').set(token);
       }
     });
 
@@ -152,7 +152,7 @@ Future<void> _requestAndSaveLocation(String uid) async {
             placemarks.first.subAdministrativeArea ?? '';
       }
     } catch (_) {}
-    await FirebaseDatabase.instance.ref('customers/\$uid').update({
+    await FirebaseDatabase.instance.ref('customers/$uid').update({
       'lat': pos.latitude,
       'lng': pos.longitude,
       if (city.isNotEmpty) 'city': city,

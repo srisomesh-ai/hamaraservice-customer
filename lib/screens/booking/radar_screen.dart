@@ -159,9 +159,7 @@ class _RadarScreenState extends State<RadarScreen>
       _addLog('↔️', 'Expanding to $km km radius...', type: 'warn');
     }
     try {
-      await FirebaseDatabase.instance
-          .ref('active_bookings/${widget.bookingId}')
-          .update({'range': km, 'status': 'searching'});
+      // Range update tracked locally — booking status stays 'active' in MySQL
     } catch (e) {}
     _countProviders(km);
     _pollTimer =
@@ -456,19 +454,7 @@ class _RadarScreenState extends State<RadarScreen>
   // Release current provider and search again
   Future<void> _searchAnother(Map<String,dynamic>? currentBooking) async {
     try {
-      await FirebaseDatabase.instance.ref('active_bookings/${widget.bookingId}').update({
-        'acceptedBy': null,
-        'status': 'active',
-        'providerId': null,
-        'quotedPrice': null,
-        'negotiationStatus': null,
-        'searchingAgain': true,
-        'searchAgainAt': DateTime.now().toIso8601String(),
-      });
-      await FirebaseDatabase.instance.ref('bookings/${widget.bookingId}').update({
-        'status': 'active',
-        'searchingAgain': true,
-      });
+      await ApiService.searchAnother(widget.bookingId);
       if (mounted) {
         setState(() { _radarActive = true; _navigating = false; });
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -544,19 +530,9 @@ class _RadarScreenState extends State<RadarScreen>
     _pollTimer?.cancel();
     _rangeTimer?.cancel();
     try {
-      // Step 1: Set status to cancelled FIRST so provider popup dismisses immediately
-      await FirebaseDatabase.instance
-          .ref('active_bookings/${widget.bookingId}')
-          .update({'status': 'cancelled', 'cancelledBy': 'customer_search'});
-      // Step 2: Short delay so provider listener fires
-      await Future.delayed(const Duration(milliseconds: 1500));
-      // Step 3: Now delete from both collections so it doesn't appear in bookings list
-      await FirebaseDatabase.instance
-          .ref('active_bookings/${widget.bookingId}')
-          .remove();
-      await FirebaseDatabase.instance
-          .ref('bookings/${widget.bookingId}')
-          .remove();
+      // Cancel booking in MySQL
+      await ApiService.cancelBooking(widget.bookingId);
+      await Future.delayed(const Duration(milliseconds: 500));
     } catch (e) {}
     if (mounted) Navigator.pop(context);
   }

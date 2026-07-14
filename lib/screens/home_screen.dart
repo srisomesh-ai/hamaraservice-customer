@@ -145,7 +145,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         });
       });
       final Map<String, Map<String,int>> ranges = {};
-      final allSvcIds = <String>{...mins.keys}..addAll(maxs.keys);
+      final allSvcIds = <String>{}..addAll(mins.keys)..addAll(maxs.keys);
       allSvcIds.forEach((svcId) {
         final mn = (mins[svcId] ?? []).fold<int>(999999, (a,b) => a < b ? a : b);
         final mx = (maxs[svcId] ?? []).fold<int>(0, (a,b) => a > b ? a : b);

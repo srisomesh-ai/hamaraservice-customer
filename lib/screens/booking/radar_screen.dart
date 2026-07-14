@@ -333,44 +333,12 @@ class _RadarScreenState extends State<RadarScreen>
   // Customer sends counter offer to provider
   Future<void> _sendNegotiation(int? counterPrice, Map<String,dynamic> bookingData) async {
     try {
-      final updates = {
-        'negotiationStatus': 'customer_countered',
-        'status': 'negotiating',
-        if (counterPrice != null && counterPrice > 0) 'counterPrice': counterPrice,
-        'negotiatedAt': DateTime.now().toIso8601String(),
-      };
-      await FirebaseDatabase.instance.ref('active_bookings/${widget.bookingId}').update(updates);
-      await FirebaseDatabase.instance.ref('bookings/${widget.bookingId}').update(updates);
-
-      // Notify provider
-      final provId = bookingData['providerId']?.toString() ?? '';
-      if (provId.isNotEmpty) {
-        final tokenSnap = await FirebaseDatabase.instance.ref('providers/$provId/fcmToken').get();
-        final token = tokenSnap.value?.toString() ?? '';
-        if (token.isNotEmpty) {
-          await http.post(
-            Uri.parse('https://notifybooking-mlchyp6tra-as.a.run.app'),
-            headers: {'Content-Type': 'application/json'},
-            body: jsonEncode({
-              'event': 'price_negotiation',
-              'fcmToken': token,
-              'title': '💬 Customer is Negotiating',
-              'body': counterPrice != null && counterPrice > 0
-                  ? 'Customer countered with ₹$counterPrice. Send your final offer.'
-                  : 'Customer wants a better price. Send your final offer.',
-              'data': {
-                'bookingId': widget.bookingId,
-                'counterPrice': counterPrice?.toString() ?? '0',
-              },
-            }),
-          );
-        }
-      }
+      // MySQL API handles negotiation + FCM notification to provider
+      await ApiService.negotiateBooking(widget.bookingId, counterPrice ?? 0);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('Negotiation sent. Waiting for provider response...'),
           backgroundColor: AppColors.teal));
-        // Restart listening for provider's final offer
         setState(() { _radarActive = true; });
         _startRange(0);
       }
@@ -382,15 +350,8 @@ class _RadarScreenState extends State<RadarScreen>
   // Customer accepts quoted price — confirmed
   Future<void> _confirmPrice(int price, Map<String,dynamic> bookingData) async {
     try {
-      final updates = {
-        'status': 'accepted',
-        'negotiationStatus': 'confirmed',
-        'confirmedPrice': price,
-        'finalPrice': price,
-        'confirmedAt': DateTime.now().toIso8601String(),
-      };
-      await FirebaseDatabase.instance.ref('active_bookings/${widget.bookingId}').update(updates);
-      await FirebaseDatabase.instance.ref('bookings/${widget.bookingId}').update(updates);
+      // MySQL API confirms price + sends FCM to provider + generates OTP
+      await ApiService.confirmPrice(widget.bookingId, price);
       _providerAccepted();
     } catch (e) {
       if (mounted) toast('Error: $e');

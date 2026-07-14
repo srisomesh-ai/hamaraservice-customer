@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
+import '../services/api_service.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../utils/theme.dart';
@@ -86,11 +87,19 @@ class _LoginScreenState extends State<LoginScreen> {
     try {
       final result = await FirebaseService.signInWithGoogle();
       if (result == null) { setState(() { _loading = false; }); return; }
-      // Save a marker so biometric knows Google was used
+
+      // Save to MySQL — upsert customer record
+      final customer = await ApiService.registerCustomer(
+        name:       result.user?.displayName ?? '',
+        authMethod: 'google',
+      );
+      if (customer != null) await ApiService.saveCurrentUser(customer);
+
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('saved_email', result.user?.email ?? '');
       await prefs.setString('auth_method', 'google');
-      if (mounted) Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const HomeScreen()));
+      if (mounted) Navigator.pushReplacement(context,
+          MaterialPageRoute(builder: (_) => const HomeScreen()));
     } catch (e) {
       setState(() {
         _loading = false;

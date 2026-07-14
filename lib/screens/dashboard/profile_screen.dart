@@ -70,7 +70,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       await _user?.updateDisplayName(_nameCtrl.text.trim());
 
       // Save to Realtime DB
-      await FirebaseDatabase.instance.ref('customers/$uid').update({
+      await ApiService.updateCustomer({
         'name':      _nameCtrl.text.trim(),
         'phone':     _phoneCtrl.text.trim(),
         'address':   _addressCtrl.text.trim(),

@@ -69,19 +69,6 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
         _watchAcceptance(id, b);
       }
     }
-    if (false) {
-      final all = Map<String, dynamic>.from(event.snapshot.value as Map);
-      final activeStatuses = ['confirmed','searching','accepted','active','pending','otp_sent','payment_pending'];
-      final mine = all.entries
-          .where((e) {
-            final b = e.value as Map;
-            return b['customerId'] == uid && activeStatuses.contains(b['status']);
-          })
-          .map((e) => Map<String, dynamic>.from({...e.value as Map, 'id': e.key}))
-          .toList()
-        ..sort((a, b) => (b['createdAt'] ?? '').compareTo(a['createdAt'] ?? ''));
-
-      setState(() { _bookings = mine; _loading = false; });
 
       for (final b in mine) {
         final id = b['id'] as String? ?? '';

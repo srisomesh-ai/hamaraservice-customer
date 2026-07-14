@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
+import '../../services/api_service.dart';
 import '../../utils/theme.dart';
 
 class CompletedBookingsScreen extends StatefulWidget {
@@ -30,24 +31,19 @@ class _CompletedBookingsScreenState extends State<CompletedBookingsScreen> {
   void _listen() {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
-    _listener = FirebaseDatabase.instance.ref('bookings').onValue.listen((event) {
-      if (!mounted) return;
-      if (!event.snapshot.exists) {
-        setState(() { _bookings = []; _loading = false; });
-        return;
-      }
-      final all = Map<String, dynamic>.from(event.snapshot.value as Map);
-      final mine = all.entries
-          .where((e) {
-            final b = e.value as Map;
-            return b['customerId'] == uid && b['status'] == 'completed';
-          })
-          .map((e) => Map<String, dynamic>.from({...e.value as Map, 'id': e.key}))
-          .toList()
-        ..sort((a, b) => (b['completedAt'] ?? b['paidAt'] ?? b['createdAt'] ?? '')
-            .compareTo(a['completedAt'] ?? a['paidAt'] ?? a['createdAt'] ?? ''));
-      if (mounted) setState(() { _bookings = mine; _loading = false; });
-    });
+    _loadBookings(uid);
+  }
+
+  Future<void> _loadBookings(String uid) async {
+    try {
+      final list = await ApiService.getCustomerBookings(uid);
+      final filtered = list.where((b) =>
+        b['status']?.toString() == 'completed'
+      ).toList();
+      if (mounted) setState(() {{ _bookings = filtered; _loading = false; }});
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   @override

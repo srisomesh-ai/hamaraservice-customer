@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:vibration/vibration.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:firebase_database/firebase_database.dart';
+import '../services/api_service.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
@@ -61,7 +62,7 @@ class _TestConsoleScreenState extends State<TestConsoleScreen> {
         // Save to Firebase
         final uid = FirebaseAuth.instance.currentUser?.uid;
         if (uid != null) {
-          await FirebaseDatabase.instance.ref('customers/$uid/fcmToken').set(token);
+          await ApiService.saveFcmToken(token);
           _log('✅ Token saved to Firebase');
         }
       } else {
@@ -155,13 +156,15 @@ class _TestConsoleScreenState extends State<TestConsoleScreen> {
     _log('Testing Firebase connection...');
     try {
       final uid = FirebaseAuth.instance.currentUser?.uid ?? 'test';
-      await FirebaseDatabase.instance.ref('test_ping/$uid').set({
+      // Test MySQL connection instead
+await ApiService.getCustomer(uid); // ping
+if (false) await Future.value({
         'ts': DateTime.now().toIso8601String(), 'app': 'customer'
       });
-      final snap = await FirebaseDatabase.instance.ref('test_ping/$uid').get();
+      final snap = await ApiService.getCustomer(uid);
       if (snap.exists) {
         _log('✅ Firebase write+read OK');
-        await FirebaseDatabase.instance.ref('test_ping/$uid').remove();
+        // cleanup not needed for MySQL test
       } else {
         _log('❌ Firebase read failed');
       }

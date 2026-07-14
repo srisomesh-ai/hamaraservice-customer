@@ -187,7 +187,7 @@ class _RadarScreenState extends State<RadarScreen>
     try {
       final svcId = widget.service['id']?.toString() ?? '';
       final nearby = await ApiService.getNearbyProviders(
-        lat: widget.lat, lng: widget.lng,
+        lat: widget.lat ?? 0.0, lng: widget.lng ?? 0.0,
         svcId: svcId.isNotEmpty ? svcId : null,
         radius: km.toDouble(),
       );

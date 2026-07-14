@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
+import '../services/api_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
@@ -123,37 +124,19 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
   Future<void> _loadProviderPriceRanges() async {
     try {
-      final snap = await FirebaseDatabase.instance.ref('providers').get();
-      if (!snap.exists || snap.value == null) return;
-      final providers = Map<String, dynamic>.from(snap.value as Map);
-      final Map<String, List<int>> mins = {};
-      final Map<String, List<int>> maxs = {};
-      providers.forEach((pid, pval) {
-        if (pval is! Map) return;
-        final p = Map<String, dynamic>.from(pval);
-        if (p['status']?.toString() != 'approved') return;
-        final services = p['services'];
-        if (services is! Map) return;
-        Map<String, dynamic>.from(services).forEach((svcId, svcVal) {
-          if (svcVal is! Map) return;
-          final sv = Map<String, dynamic>.from(svcVal);
-          if (sv['enabled'] != true) return;
-          final mn = (sv['min'] as num?)?.toInt() ?? 0;
-          final mx = (sv['max'] as num?)?.toInt() ?? 0;
-          if (mn > 0) { mins.putIfAbsent(svcId, () => []).add(mn); }
-          if (mx > 0) { maxs.putIfAbsent(svcId, () => []).add(mx); }
-        });
-      });
-      final Map<String, Map<String,int>> ranges = {};
-      final allSvcIds = <String>{}..addAll(mins.keys)..addAll(maxs.keys);
-      allSvcIds.forEach((svcId) {
-        final mn = (mins[svcId] ?? []).fold<int>(999999, (a,b) => a < b ? a : b);
-        final mx = (maxs[svcId] ?? []).fold<int>(0, (a,b) => a > b ? a : b);
-        if (mn < 999999 || mx > 0) {
-          ranges[svcId] = {'min': mn < 999999 ? mn : 0, 'max': mx};
+      // Load price ranges from MySQL — much faster than reading all providers
+      final city = _city != 'Your City' ? _city : null;
+      final ranges = await ApiService.getServicePriceRanges(city: city);
+      final Map<String, Map<String,int>> parsed = {};
+      ranges.forEach((svcId, val) {
+        if (val is Map) {
+          parsed[svcId] = {
+            'min': (val['min'] as num?)?.toInt() ?? 0,
+            'max': (val['max'] as num?)?.toInt() ?? 0,
+          };
         }
       });
-      if (mounted) setState(() => _providerPriceRanges = ranges);
+      if (mounted) setState(() => _providerPriceRanges = parsed);
     } catch (_) {}
   }
 

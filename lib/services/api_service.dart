@@ -259,6 +259,22 @@ class ApiService {
     return res['success'] == true;
   }
 
+  /// Submit a review for a completed booking
+  static Future<bool> submitReview({
+    required String bookingId,
+    required String providerId,
+    required int rating,
+    String comment = '',
+  }) async {
+    final res = await _post('reviews.php', {
+      'booking_id':  bookingId,
+      'provider_id': providerId,
+      'rating':      rating,
+      'comment':     comment,
+    }, params: {'action': 'submit'});
+    return res['success'] == true;
+  }
+
   // ── LOCAL STORAGE (SharedPreferences) ───────────────────
 
   static Future<void> saveCurrentUser(Map<String,dynamic> data) async {

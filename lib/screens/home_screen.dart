@@ -147,18 +147,20 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     if (savedCity.isNotEmpty && mounted) {
       setState(() => _city = savedCity);
     }
-    // 2. Also load from Firebase
+    // 2. Load from MySQL
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid != null) {
       try {
-        final snap = await FirebaseDatabase.instance.ref('customers/$uid').get();
-        if (snap.exists) {
-          final data = Map<String, dynamic>.from(snap.value as Map);
-          final city = data['city']?.toString() ?? '';
-          if (city.isNotEmpty && mounted) {
-            setState(() => _city = city);
-            await prefs.setString('user_city', city);
-          }
+        final profile = await ApiService.getCustomer(uid);
+        if (profile != null) {
+          final city = profile['city']?.toString() ?? '';
+          final name = profile['name']?.toString() ?? '';
+          if (mounted) setState(() {
+            if (city.isNotEmpty) _city = city;
+            if (name.isNotEmpty) _name = name;
+          });
+          if (city.isNotEmpty) await prefs.setString('user_city', city);
+          await ApiService.saveCurrentUser(profile);
         }
       } catch (_) {}
     }

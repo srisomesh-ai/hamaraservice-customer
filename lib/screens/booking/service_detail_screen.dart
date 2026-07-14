@@ -25,22 +25,28 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
   Future<void> _loadPrice() async {
     try {
       final svcId = widget.service['id'] as String;
-      final snap = await FirebaseDatabase.instance.ref('hs_service_prices/$svcId').get();
-      if (snap.exists) {
-        final data = Map<String, dynamic>.from(snap.value as Map);
-        // Try common price paths
-        int price = 0;
-        if (data['visit'] is Map) {
-          final v = Map<String, dynamic>.from(data['visit'] as Map);
-          if (v['visit'] != null) price = int.tryParse(v['visit'].toString()) ?? 0;
-          else if (v['price'] != null) price = int.tryParse(v['price'].toString()) ?? 0;
-        } else if (data['base'] != null) {
-          price = int.tryParse(data['base'].toString()) ?? 0;
+      // Load prices from MySQL API
+      final data = await ApiService.getServicePrices(svcId);
+      int price = 0;
+      if (data.containsKey('visit') && data['visit'] is Map) {
+        final v = data['visit'] as Map;
+        price = int.tryParse(v['visit']?.toString() ?? '0') ?? 0;
+      } else if (data.isNotEmpty) {
+        // Get lowest price from all options
+        final allPrices = <int>[];
+        data.forEach((_, groupVal) {
+          if (groupVal is Map) {
+            groupVal.forEach((_, p) {
+              if (p is int && p > 0) allPrices.add(p);
+            });
+          }
+        });
+        if (allPrices.isNotEmpty) {
+          allPrices.sort();
+          price = allPrices.first;
         }
-        setState(() { _price = price; _loadingPrice = false; });
-      } else {
-        setState(() { _loadingPrice = false; });
       }
+      setState(() { _price = price; _loadingPrice = false; });
     } catch (e) {
       setState(() { _loadingPrice = false; });
     }

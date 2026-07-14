@@ -83,7 +83,6 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
           _watchAcceptance(id, b);
         }
       }
-    });
   }
 
   void _watchAcceptance(String bookingId, Map<String, dynamic> booking) {

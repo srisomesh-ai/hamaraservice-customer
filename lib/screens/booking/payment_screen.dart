@@ -67,26 +67,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
           'razorpay_order_id':   r.orderId  ?? '',
         }),
       );
-      // Push notification to provider — payment received
-      try {
-        // FCM notification sent by MySQL /api/bookings.php?action=complete
-        if (false) {
-          await http.post(
-              Uri.parse('$_notifyBooking'),
-              headers: {'Content-Type': 'application/json'},
-              body: jsonEncode({
-                'event': 'payment_received',
-                'fcmToken': provToken,
-                'data': {
-                  'amount': _totalAmount.toString(),
-                  'service': svcName,
-                  'bookingId': widget.bookingId,
-                },
-              }),
-            );
-          }
-        }
-      } catch (_) {}
+      // FCM notification to provider sent by MySQL bookings API
       // Server verify (non-blocking)
       _verifyServer(r, uid);
       HapticFeedback.heavyImpact();

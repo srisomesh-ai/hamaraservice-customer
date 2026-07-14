@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
+import '../../services/api_service.dart';
 import 'package:http/http.dart' as http;
 import 'package:razorpay_flutter/razorpay_flutter.dart';
 import '../../utils/theme.dart';
@@ -44,10 +45,8 @@ class _PaymentScreenState extends State<PaymentScreen> {
   Future<void> _loadPenalty() async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
-    try {
-      final snap = await FirebaseDatabase.instance.ref('customers/$uid/pendingPenalty').get();
-      if (snap.exists) setState(() => _pendingPenalty = ((snap.value as num?)?.toInt() ?? 0));
-    } catch (_) {}
+    // Penalty managed in MySQL — skip for now
+    setState(() => _pendingPenalty = 0);
   }
 
   // confirmedPrice = negotiated & agreed price; fallback to priceVal for non-negotiated bookings
@@ -86,14 +85,9 @@ class _PaymentScreenState extends State<PaymentScreen> {
       }
       // Push notification to provider — payment received
       try {
-        final provId = widget.booking['providerId']?.toString() ?? '';
-        if (provId.isNotEmpty) {
-          final provTokenSnap = await FirebaseDatabase.instance
-              .ref('providers/$provId/fcmToken').get();
-          final provToken = provTokenSnap.value?.toString() ?? '';
-          if (provToken.isNotEmpty) {
-            final svcName = widget.booking['service']?.toString() ?? '';
-            await http.post(
+        // FCM notification sent by MySQL /api/bookings.php?action=complete
+        if (false) {
+          await http.post(
               Uri.parse('$_notifyBooking'),
               headers: {'Content-Type': 'application/json'},
               body: jsonEncode({

@@ -57,32 +57,16 @@ class _PaymentScreenState extends State<PaymentScreen> {
     HapticFeedback.heavyImpact();
     setState(() => _loading = true);
     try {
-      final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
-      final providerId = widget.booking['providerId'] ?? '';
-      await FirebaseDatabase.instance.ref('bookings/${widget.bookingId}').update({
-        'status': 'completed', 'paymentMethod': 'razorpay', 'paymentStatus': 'paid',
-        'txnId': r.paymentId ?? '', 'razorpayOrderId': r.orderId ?? '',
-        'amountPaid': _totalAmount, 'penalty': _pendingPenalty,
-        'paidAt': DateTime.now().toIso8601String(),
-      });
-      await FirebaseDatabase.instance.ref('active_bookings/${widget.bookingId}').update(
-          {'status': 'completed', 'paymentStatus': 'paid'});
-      if (_pendingPenalty > 0 && uid.isNotEmpty) {
-        await FirebaseDatabase.instance.ref('customers/$uid/pendingPenalty').set(0);
-      }
-      // Record commission rate on booking so provider earnings_screen
-      // can recalculate correctly — do NOT write totalEarned here
-      // (earnings_screen is the single source of truth for provider balance)
-      if (providerId.isNotEmpty) {
-        final svcName = widget.booking['service'] as String? ?? '';
-        final commRate = _getCommissionRate(svcName);
-        final netEarned = (_baseAmount * (1 - commRate / 100)).roundToDouble();
-        await FirebaseDatabase.instance.ref('bookings/${widget.bookingId}').update({
-          'commissionRate': commRate,
-          'platformFee': (_baseAmount * commRate / 100).round(),
-          'providerEarned': netEarned.round(),
-        });
-      }
+      // Complete booking in MySQL — handles status, commission, provider earnings + FCM
+      await http.post(
+        Uri.parse('https://hamaraservice.com/api/bookings.php?action=complete'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'booking_id':          widget.bookingId,
+          'razorpay_payment_id': r.paymentId ?? '',
+          'razorpay_order_id':   r.orderId  ?? '',
+        }),
+      );
       // Push notification to provider — payment received
       try {
         // FCM notification sent by MySQL /api/bookings.php?action=complete

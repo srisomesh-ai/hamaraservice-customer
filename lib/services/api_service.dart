@@ -308,17 +308,4 @@ class ApiService {
     await prefs.remove('hs_customer');
   }
 
-  // ── Complete booking after payment ──────────────────────
-  static Future<bool> completeBooking({
-    required String bookingId,
-    String razorpayPaymentId = '',
-    String razorpayOrderId = '',
-  }) async {
-    final res = await _post('bookings.php', {
-      'booking_id':          bookingId,
-      'razorpay_payment_id': razorpayPaymentId,
-      'razorpay_order_id':   razorpayOrderId,
-    }, params: {'action': 'complete'});
-    return res['success'] == true;
-  }
 }

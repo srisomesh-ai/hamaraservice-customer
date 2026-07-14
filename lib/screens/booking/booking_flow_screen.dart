@@ -63,8 +63,8 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
     if (uid == null) return;
     try {
       final profile = await ApiService.getCustomer(uid);
-      if (!snap.exists) return;
-      final data = Map<String, dynamic>.from(snap.value as Map);
+      if (profile == null) return;
+      final data = profile;
       final lat = (data['lat'] as num?)?.toDouble();
       final lng = (data['lng'] as num?)?.toDouble();
       final savedAddress = data['address']?.toString() ?? '';
@@ -91,10 +91,9 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
     _nameCtrl.text = user?.displayName ?? '';
     try {
       final profile = await ApiService.getCustomer(user?.uid ?? '');
-      if (snap.exists) {
-        final data = Map<String, dynamic>.from(snap.value as Map);
-        if (_nameCtrl.text.isEmpty) _nameCtrl.text = data['name'] ?? '';
-        _phoneCtrl.text = data['phone'] ?? user?.phoneNumber ?? '';
+      if (profile != null) {
+        if (_nameCtrl.text.isEmpty) _nameCtrl.text = profile['name'] ?? '';
+        _phoneCtrl.text = profile['phone'] ?? user?.phoneNumber ?? '';
       }
     } catch (e) {}
   }

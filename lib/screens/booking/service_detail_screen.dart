@@ -131,7 +131,7 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
                             children: [
                               Icon(Icons.star_rounded, color: AppColors.yellow, size: 16),
                               SizedBox(width: 4),
-                              Text('4.8 · 2,840 reviews",
+                              Text('4.8 · 2,840 reviews',
                                 style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.green)),
                             ],
                           ),
@@ -142,7 +142,7 @@ class _ServiceDetailScreenState extends State<ServiceDetailScreen> {
                   const SizedBox(height: 20),
 
                   // What's included
-                  const Text("What\'s Included', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.ink)),
+                  const Text("What's Included", style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.ink)),
                   const SizedBox(height: 12),
                   ..._getIncludes(svc['id'] as String).map((item) => Padding(
                     padding: const EdgeInsets.only(bottom: 10),

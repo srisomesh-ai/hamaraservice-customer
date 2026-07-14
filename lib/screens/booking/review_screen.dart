@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
+import '../../services/api_service.dart';
 import '../../utils/theme.dart';
 import '../home_screen.dart';
 
@@ -42,37 +43,13 @@ class _ReviewScreenState extends State<ReviewScreen> {
           ? _commentCtrl.text.trim()
           : _selectedQuick.join(', ');
 
-      // Save review
-      await FirebaseDatabase.instance.ref('provider_reviews').push().set({
-        'bookingId':    widget.bookingId,
-        'providerId':   provId,
-        'customerId':   uid,
-        'customerName': widget.booking['customer'] ?? '',
-        'service':      widget.booking['service'] ?? '',
-        'rating':       _rating,
-        'comment':      comment,
-        'createdAt':    DateTime.now().toIso8601String(),
-      });
-
-      // Update booking
-      await FirebaseDatabase.instance.ref('bookings/${widget.bookingId}').update({
-        'rated': true, 'rating': _rating,
-      });
-
-      // Update provider average rating
-      if (provId.isNotEmpty) {
-        final snap = await FirebaseDatabase.instance.ref('providers/$provId').get();
-        if (snap.exists) {
-          final data = Map<String, dynamic>.from(snap.value as Map);
-          final currentRating = (data['rating'] as num?)?.toDouble() ?? 0.0;
-          final reviews = (data['reviews'] as num?)?.toInt() ?? 0;
-          final newReviews = reviews + 1;
-          final newRating = ((currentRating * reviews) + _rating) / newReviews;
-          await FirebaseDatabase.instance.ref('providers/$provId').update({
-            'rating': double.parse(newRating.toStringAsFixed(1)),
-            'reviews': newReviews,
-          });
-        }
+      // Submit review to MySQL — auto updates provider rating
+      await ApiService.submitReview(
+        bookingId:  widget.bookingId,
+        providerId: provId,
+        rating:     _rating,
+        comment:    _comment,
+      );
       }
 
       setState(() { _submitting = false; _submitted = true; });

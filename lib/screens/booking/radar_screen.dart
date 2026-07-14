@@ -92,19 +92,7 @@ class _RadarScreenState extends State<RadarScreen>
         _radarActive = false;
         _pollTimer?.cancel();
         _rangeTimer?.cancel();
-        // Make booking pending when app goes to background
-        FirebaseDatabase.instance
-            .ref('active_bookings/${widget.bookingId}')
-            .update({
-          'status': 'pending',
-          'pendingAt': DateTime.now().toIso8601String(),
-        });
-        FirebaseDatabase.instance
-            .ref('bookings/${widget.bookingId}')
-            .update({
-          'status': 'pending',
-          'pendingAt': DateTime.now().toIso8601String(),
-        });
+        // Booking stays active in MySQL when app backgrounds
       }
     } else if (state == AppLifecycleState.resumed) {
       // Resume radar if it was active before
@@ -196,13 +184,19 @@ class _RadarScreenState extends State<RadarScreen>
 
   Future<void> _countProviders(int km) async {
     try {
-      final snap =
-          await FirebaseDatabase.instance.ref('providers').get();
-      if (!snap.exists) return;
-      final all =
-          Map<String, dynamic>.from(snap.value as Map);
-      final reqSvc =
-          (widget.service['name'] as String).toLowerCase();
+      final svcId = widget.service['id']?.toString() ?? '';
+      final nearby = await ApiService.getNearbyProviders(
+        lat: widget.lat, lng: widget.lng,
+        svcId: svcId.isNotEmpty ? svcId : null,
+        radius: km.toDouble(),
+      );
+      if (mounted) setState(() => _nearbyCount = nearby.length);
+    } catch (_) {}
+  }
+  Future<void> _countProviders_unused(int km) async {
+    try {
+      final all = <String, dynamic>{};
+      final reqSvc = (widget.service['name'] as String).toLowerCase();
       int count = 0;
       for (final v in all.values) {
         final p = Map<String, dynamic>.from(v as Map);
@@ -457,21 +451,8 @@ class _RadarScreenState extends State<RadarScreen>
         setState(() => _radarActive = false);
     _pollTimer?.cancel();
     _rangeTimer?.cancel();
-    try {
-      await FirebaseDatabase.instance
-          .ref('active_bookings/${widget.bookingId}')
-          .update({
-        'status': 'pending',
-        'pendingAt': DateTime.now().toIso8601String(),
-      });
-      await FirebaseDatabase.instance
-          .ref('bookings/${widget.bookingId}')
-          .update({
-        'status': 'pending',
-        'pendingAt': DateTime.now().toIso8601String(),
-      });
-    } catch (e) {}
-    _addLog('⏳', 'Booking saved as pending — providers will see it', type: 'warn');
+    // Booking stays active in MySQL — no pending status needed
+    _addLog('⏳', 'Booking active — providers will see it', type: 'warn');
     await Future.delayed(const Duration(seconds: 1));
     if (!mounted) return;
     Navigator.pushReplacement(

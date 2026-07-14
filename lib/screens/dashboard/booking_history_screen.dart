@@ -36,24 +36,20 @@ class _BookingHistoryScreenState extends State<BookingHistoryScreen> {
   void _listen() {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
-    _listener = FirebaseDatabase.instance.ref('bookings').onValue.listen((event) {
-      if (!mounted) return;
-      if (!event.snapshot.exists) {
-        setState(() { _history = []; _loading = false; });
-        return;
-      }
-      final all = Map<String, dynamic>.from(event.snapshot.value as Map);
-      final mine = all.entries
-          .where((e) {
-            final b = e.value as Map;
-            return b['customerId'] == uid &&
-                ['completed','cancelled'].contains(b['status']);
-          })
-          .map((e) => Map<String, dynamic>.from({...e.value as Map, 'id': e.key}))
-          .toList()
-        ..sort((a, b) => (b['createdAt'] ?? '').compareTo(a['createdAt'] ?? ''));
-      if (mounted) setState(() { _history = mine; _loading = false; });
-    });
+    _loadHistory(uid);
+  }
+
+  Future<void> _loadHistory(String uid) async {
+    try {
+      final list = await ApiService.getCustomerBookings(uid);
+      // Filter to completed/cancelled only for history screen
+      final filtered = list.where((b) =>
+        ['completed','cancelled'].contains(b['status']?.toString())
+      ).toList();
+      if (mounted) setState(() { _history = filtered; _loading = false; });
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   List<Map<String, dynamic>> get _filtered {

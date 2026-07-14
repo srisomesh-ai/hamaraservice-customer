@@ -42,9 +42,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
       _phoneCtrl.text = _user?.phoneNumber ?? '';
 
       // Load extra profile data from Realtime DB
-      final snap = await FirebaseDatabase.instance.ref('customers/$uid').get();
-      if (snap.exists) {
-        final data = Map<String, dynamic>.from(snap.value as Map);
+      final data = await ApiService.getCustomer(uid);
+      if (data != null) {
         _nameCtrl.text    = data['name']    ?? _nameCtrl.text;
         _phoneCtrl.text   = data['phone']   ?? _phoneCtrl.text;
         _addressCtrl.text = data['address'] ?? '';

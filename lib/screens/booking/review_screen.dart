@@ -48,7 +48,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
         bookingId:  widget.bookingId,
         providerId: provId,
         rating:     _rating,
-        comment:    _comment,
+        comment:    _commentCtrl.text.trim(),
       );
 
       setState(() { _submitting = false; _submitted = true; });

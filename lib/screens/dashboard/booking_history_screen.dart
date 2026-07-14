@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
+import '../../services/api_service.dart';
 import '../../utils/theme.dart';
 
 // HISTORY ONLY — no Scaffold, no AppBar

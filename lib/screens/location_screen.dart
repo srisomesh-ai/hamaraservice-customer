@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
+import '../services/api_service.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
 import '../utils/theme.dart';
@@ -102,7 +103,7 @@ class _LocationScreenState extends State<LocationScreen> {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
       try {
-        await FirebaseDatabase.instance.ref('customers/${user.uid}').update({
+        await ApiService.updateCustomer({
           'city': city.trim(),
           'updatedAt': DateTime.now().toIso8601String(),
         });

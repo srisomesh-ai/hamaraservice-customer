@@ -65,6 +65,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
       );
       // FCM notification to provider sent by MySQL bookings API
       // Server verify (non-blocking)
+      final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
       _verifyServer(r, uid);
       HapticFeedback.heavyImpact();
       setState(() { _loading = false; _paid = true; });

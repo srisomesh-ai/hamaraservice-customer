@@ -377,7 +377,7 @@ class _RadarScreenState extends State<RadarScreen>
           backgroundColor: AppColors.teal));
         // Restart listening for provider's final offer
         setState(() { _radarActive = true; });
-        _startListening();
+        _startRange(0);
       }
     } catch (e) {
       if (mounted) toast('Error: $e');
@@ -477,7 +477,7 @@ class _RadarScreenState extends State<RadarScreen>
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('🔍 Searching for another provider...'),
           backgroundColor: AppColors.teal));
-        _startListening();
+        _startRange(0);
       }
     } catch (e) {
       if (mounted) toast('Error: $e');

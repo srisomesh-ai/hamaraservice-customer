@@ -12,111 +12,92 @@ import 'firebase_options.dart';
 import 'utils/theme.dart';
 import 'screens/splash_screen.dart';
 
-// Global FLNP instance
+// Global notification plugin instance
 final FlutterLocalNotificationsPlugin flnp = FlutterLocalNotificationsPlugin();
 
+// Notification channel details
+const _channel = AndroidNotificationChannel(
+  'hamaraservice_high_priority',
+  'HamaraService Alerts',
+  description: 'Booking and payment notifications',
+  importance: Importance.max,
+  playSound: true,
+  enableVibration: true,
+);
+
+const _notifDetails = NotificationDetails(
+  android: AndroidNotificationDetails(
+    'hamaraservice_high_priority',
+    'HamaraService Alerts',
+    channelDescription: 'Booking and payment notifications',
+    importance: Importance.max,
+    priority: Priority.high,
+    playSound: true,
+    enableVibration: true,
+    visibility: NotificationVisibility.public,
+  ),
+);
+
+// Background handler — fires even when app is killed
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
-  // Data-only messages need to be shown manually
-  final title = message.data['title'] ?? message.notification?.title ?? 'HamaraService';
-  final body  = message.data['body']  ?? message.notification?.body  ?? 'You have a new update.';
+  // Get title/body from data payload (since we send data-only messages)
+  final title = message.data['title'] ?? 'HamaraService';
+  final body  = message.data['body']  ?? 'You have a new update.';
 
-  // Init local notifications
-  final flnpBg = FlutterLocalNotificationsPlugin();
-  await flnpBg.initialize(
+  if (title.isEmpty && body.isEmpty) return;
+
+  final plugin = FlutterLocalNotificationsPlugin();
+  await plugin.initialize(
     const InitializationSettings(
       android: AndroidInitializationSettings('@mipmap/ic_launcher'),
     ),
   );
-
-  await flnpBg.show(
-    message.hashCode,
-    title,
-    body,
-    const NotificationDetails(
-      android: AndroidNotificationDetails(
-        'hamaraservice_high_priority',
-        'HamaraService Alerts',
-        channelDescription: 'Booking and payment notifications',
-        importance: Importance.max,
-        priority: Priority.high,
-        playSound: true,
-        enableVibration: true,
-        visibility: NotificationVisibility.public,
-        icon: '@mipmap/ic_launcher',
-      ),
-    ),
-    payload: message.data.toString(),
-  );
+  await plugin.show(message.hashCode, title, body, _notifDetails,
+    payload: message.data['bookingId'] ?? '');
 }
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
   try {
     await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
-    // Initialize local notifications for foreground display
+    // Create notification channel on Android
+    await flnp.resolvePlatformSpecificImplementation<
+        AndroidFlutterLocalNotificationsPlugin>()
+        ?.createNotificationChannel(_channel);
+
+    // Init local notifications
     await flnp.initialize(
       const InitializationSettings(
         android: AndroidInitializationSettings('@mipmap/ic_launcher'),
       ),
     );
 
+    // Register background handler BEFORE anything else
     FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
-    // Request permission
-    final settings = await FirebaseMessaging.instance.requestPermission(
-      alert: true,
-      badge: true,
-      sound: true,
-      criticalAlert: true,
-      announcement: true,
-      provisional: false,
+    // Request notification permission
+    await FirebaseMessaging.instance.requestPermission(
+      alert: true, badge: true, sound: true,
+      criticalAlert: false, provisional: false,
     );
-    print('FCM permission: ${settings.authorizationStatus}');
 
-    await FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(
-      alert: true, badge: true, sound: true);
-
-    // Show notification when app is open (foreground)
+    // Foreground notifications — read from data since we send data-only
     FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
-      final n = message.notification;
-      if (n == null) return;
+      final title = message.data['title'] ?? message.notification?.title ?? 'HamaraService';
+      final body  = message.data['body']  ?? message.notification?.body  ?? '';
+      if (title.isEmpty) return;
       try {
-        await flnp.show(
-          message.hashCode,
-          n.title ?? 'HamaraService',
-          n.body ?? '',
-          const NotificationDetails(
-            android: AndroidNotificationDetails(
-              'hamaraservice_high_priority',
-              'HamaraService Alerts',
-              channelDescription: 'Booking and payment notifications',
-              importance: Importance.max,
-              priority: Priority.high,
-              playSound: true,
-              enableVibration: true,
-              visibility: NotificationVisibility.public,
-            ),
-          ),
-        );
+        await flnp.show(message.hashCode, title, body, _notifDetails,
+          payload: message.data['bookingId'] ?? '');
       } catch (_) {}
     });
 
-    // Handle notification tap from background
-    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
-      print('Notification tapped: ${message.data}');
-    });
-
-    // App opened from terminated via notification
-    final initialMessage = await FirebaseMessaging.instance.getInitialMessage();
-    if (initialMessage != null) {
-      print('Opened from notification: ${initialMessage.data}');
-    }
-
-    // Save FCM token
+    // Save FCM token to Firebase
     Future<void> saveFcmToken(String uid) async {
       try {
         final token = await FirebaseMessaging.instance.getToken();
@@ -143,7 +124,7 @@ void main() async {
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
         await FirebaseDatabase.instance
-            .ref('customers/${user.uid}/fcmToken').set(token);
+            .ref('customers/\${user.uid}/fcmToken').set(token);
       }
     });
 
@@ -171,7 +152,7 @@ Future<void> _requestAndSaveLocation(String uid) async {
             placemarks.first.subAdministrativeArea ?? '';
       }
     } catch (_) {}
-    await FirebaseDatabase.instance.ref('customers/$uid').update({
+    await FirebaseDatabase.instance.ref('customers/\$uid').update({
       'lat': pos.latitude,
       'lng': pos.longitude,
       if (city.isNotEmpty) 'city': city,

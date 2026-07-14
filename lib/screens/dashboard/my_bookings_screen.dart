@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:vibration/vibration.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
+import '../../services/api_service.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../utils/theme.dart';
 import '../booking/payment_screen.dart';
@@ -48,12 +49,27 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
   void _listen() {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
-    _listener = FirebaseDatabase.instance.ref('bookings').orderByChild('customerId').equalTo(uid).onValue.listen((event) {
-      if (!mounted) return;
-      if (!event.snapshot.exists) {
-        setState(() { _bookings = []; _loading = false; });
-        return;
+    _loadBookings(uid);
+    _listener = Stream.periodic(const Duration(seconds: 5))
+        .listen((_) => _loadBookings(uid));
+  }
+
+  Future<void> _loadBookings(String uid) async {
+    try {
+      final list = await ApiService.getCustomerBookings(uid);
+      if (mounted) setState(() { _bookings = list; _loading = false; });
+    } catch (_) {
+      if (mounted) setState(() => _loading = false);
+    }
+    // Watch active bookings for status changes
+    for (final b in _bookings) {
+      final id = b['id']?.toString() ?? '';
+      final status = b['status']?.toString() ?? '';
+      if (['active','price_quoted','negotiating','negotiation_final','confirmed'].contains(status)) {
+        _watchAcceptance(id, b);
       }
+    }
+    if (false) {
       final all = Map<String, dynamic>.from(event.snapshot.value as Map);
       final activeStatuses = ['confirmed','searching','accepted','active','pending','otp_sent','payment_pending'];
       final mine = all.entries
@@ -85,20 +101,19 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
 
   void _watchAcceptance(String bookingId, Map<String, dynamic> booking) {
     if (_acceptWatchers.containsKey(bookingId)) return;
-    _acceptWatchers[bookingId] = FirebaseDatabase.instance
-        .ref('active_bookings/$bookingId/status').onValue.listen((event) {
-      if (!mounted) return;
-      final status = event.snapshot.value?.toString() ?? '';
-      if (status == 'accepted') {
+    _acceptWatchers[bookingId] = Stream.periodic(const Duration(seconds: 3))
+        .asyncMap((_) => ApiService.getBooking(bookingId))
+        .listen((data) {
+      if (!mounted || data == null) return;
+      final status = data['status']?.toString() ?? '';
+      if (status == 'price_quoted' || status == 'accepted') {
         _acceptWatchers[bookingId]?.cancel();
         _acceptWatchers.remove(bookingId);
         // Get provider info and show alert
-        FirebaseDatabase.instance.ref('active_bookings/$bookingId').get().then((snap) {
-          if (!snap.exists || !mounted) return;
-          final data = Map<String, dynamic>.from(snap.value as Map);
-          final acceptedBy = data['acceptedBy'] as Map?;
-          final providerName = data['providerName']?.toString() ?? acceptedBy?['name']?.toString() ?? 'Your provider';
-          final providerPhone = acceptedBy?['phone']?.toString() ?? '';
+        ApiService.getBooking(bookingId).then((data) {
+          if (data == null || !mounted) return;
+          final providerName = data['provider_name']?.toString() ?? 'Your provider';
+          final providerPhone = '';
           _showProviderAcceptedAlert(providerName, providerPhone, booking['service'] ?? '');
         });
       }
@@ -125,10 +140,10 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
 
   void _watchOTP(String bookingId, String service) {
     if (_otpWatchers.containsKey(bookingId)) return;
-    _otpWatchers[bookingId] = FirebaseDatabase.instance
-        .ref('job_otp/$bookingId').onValue.listen((event) {
-      if (!event.snapshot.exists || !mounted) return;
-      final data = Map<String, dynamic>.from(event.snapshot.value as Map);
+    _otpWatchers[bookingId] = Stream.periodic(const Duration(seconds: 4))
+        .asyncMap((_) => ApiService.getBooking(bookingId))
+        .listen((data) {
+      if (data == null || !mounted) return;
       final status = data['status']?.toString() ?? '';
       final otp = data['otp']?.toString() ?? '';
       if (status == 'waiting' && otp.isNotEmpty) {
@@ -222,15 +237,8 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
     };
     if (['accepted','active'].contains(status)) {
       update['penalty'] = '20';
-      final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
-      if (uid.isNotEmpty) {
-        final snap = await FirebaseDatabase.instance.ref('customers/$uid/pendingPenalty').get();
-        final existing = (snap.value as num?)?.toInt() ?? 0;
-        await FirebaseDatabase.instance.ref('customers/$uid').update({'pendingPenalty': existing + 20});
-      }
     }
-    await FirebaseDatabase.instance.ref('bookings/$id').update(update);
-    await FirebaseDatabase.instance.ref('active_bookings/$id').update({'status': 'cancelled', 'cancelledBy': 'customer'});
+    await ApiService.cancelBooking(id);
     if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text(['accepted','active'].contains(status) ? 'Cancelled. Rs.20 penalty applied.' : 'Booking cancelled.'),
       backgroundColor: AppColors.red, duration: const Duration(seconds: 3)));

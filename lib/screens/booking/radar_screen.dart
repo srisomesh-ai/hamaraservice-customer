@@ -191,7 +191,7 @@ class _RadarScreenState extends State<RadarScreen>
         svcId: svcId.isNotEmpty ? svcId : null,
         radius: km.toDouble(),
       );
-      if (mounted) setState(() => _nearbyCount = nearby.length);
+      if (mounted) setState(() => _providersFound = nearby.length);
     } catch (_) {}
   }
   Future<void> _countProviders_unused(int km) async {

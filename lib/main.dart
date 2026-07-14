@@ -11,6 +11,7 @@ import 'package:geocoding/geocoding.dart';
 import 'firebase_options.dart';
 import 'utils/theme.dart';
 import 'screens/splash_screen.dart';
+import 'services/api_service.dart';
 
 // Global notification plugin instance
 final FlutterLocalNotificationsPlugin flnp = FlutterLocalNotificationsPlugin();
@@ -102,7 +103,7 @@ void main() async {
       try {
         final token = await FirebaseMessaging.instance.getToken();
         if (token != null && token.isNotEmpty) {
-          await FirebaseDatabase.instance.ref('customers/$uid/fcmToken').set(token);
+          await ApiService.saveFcmToken(token);
         }
       } catch (_) {}
     }
@@ -123,8 +124,7 @@ void main() async {
     FirebaseMessaging.instance.onTokenRefresh.listen((token) async {
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
-        await FirebaseDatabase.instance
-            .ref('customers/${user.uid}/fcmToken').set(token);
+        await ApiService.saveFcmToken(token);
       }
     });
 
@@ -152,7 +152,7 @@ Future<void> _requestAndSaveLocation(String uid) async {
             placemarks.first.subAdministrativeArea ?? '';
       }
     } catch (_) {}
-    await FirebaseDatabase.instance.ref('customers/$uid').update({
+    await ApiService.updateCustomer({
       'lat': pos.latitude,
       'lng': pos.longitude,
       if (city.isNotEmpty) 'city': city,

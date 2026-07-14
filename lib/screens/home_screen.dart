@@ -188,7 +188,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       } catch (_) {}
       final uid = FirebaseAuth.instance.currentUser?.uid;
       if (uid != null) {
-        await FirebaseDatabase.instance.ref('customers/$uid').update({
+        await ApiService.updateCustomer({
           'lat': pos.latitude,
           'lng': pos.longitude,
           if (city.isNotEmpty) 'city': city,
@@ -284,15 +284,12 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   void _startAppOtpListener() {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
-    // Listen to job_otp filtered by customerId — fires on any tab
-    _appOtpListener = FirebaseDatabase.instance
-        .ref('job_otp')
-        .orderByChild('customerId')
-        .equalTo(uid)
-        .onValue
-        .listen((event) {
-      if (!event.snapshot.exists || !mounted) return;
-      final all = Map<String, dynamic>.from(event.snapshot.value as Map);
+    // Poll MySQL for active booking OTP status
+    _appOtpListener = Stream.periodic(const Duration(seconds: 5))
+        .asyncMap((_) => ApiService.getActiveBooking(uid))
+        .listen((booking) {
+      if (booking == null || !mounted) return;
+      final all = {'active': booking};
       for (final entry in all.entries) {
         final data = Map<String, dynamic>.from(entry.value as Map);
         final status = data['status']?.toString() ?? '';
@@ -310,9 +307,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         } else if (status == 'verified' && _appOtpBookingId == bookingId) {
           setState(() => _showAppOtpPopup = false);
           // Load booking and navigate to payment
-          FirebaseDatabase.instance.ref('bookings/$bookingId').get().then((snap) {
-            if (snap.exists && mounted) {
-              final booking = Map<String, dynamic>.from(snap.value as Map);
+          ApiService.getBooking(bookingId).then((booking) {
+            if (booking != null && mounted) {
               Navigator.push(context, MaterialPageRoute(
                   builder: (_) => PaymentScreen(bookingId: bookingId, booking: booking)));
             }

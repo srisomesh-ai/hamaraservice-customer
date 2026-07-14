@@ -50,7 +50,6 @@ class _ReviewScreenState extends State<ReviewScreen> {
         rating:     _rating,
         comment:    _comment,
       );
-      }
 
       setState(() { _submitting = false; _submitted = true; });
     } catch (e) {

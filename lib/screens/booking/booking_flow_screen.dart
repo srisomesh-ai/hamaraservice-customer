@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:firebase_database/firebase_database.dart';
+import '../../services/api_service.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../utils/theme.dart';
 import '../../services/firebase_service.dart';
@@ -61,7 +62,7 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
     try {
-      final snap = await FirebaseDatabase.instance.ref('customers/$uid').get();
+      final profile = await ApiService.getCustomer(uid);
       if (!snap.exists) return;
       final data = Map<String, dynamic>.from(snap.value as Map);
       final lat = (data['lat'] as num?)?.toDouble();
@@ -89,7 +90,7 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
     final user = FirebaseAuth.instance.currentUser;
     _nameCtrl.text = user?.displayName ?? '';
     try {
-      final snap = await FirebaseDatabase.instance.ref('customers/${user?.uid}').get();
+      final profile = await ApiService.getCustomer(user?.uid ?? '');
       if (snap.exists) {
         final data = Map<String, dynamic>.from(snap.value as Map);
         if (_nameCtrl.text.isEmpty) _nameCtrl.text = data['name'] ?? '';

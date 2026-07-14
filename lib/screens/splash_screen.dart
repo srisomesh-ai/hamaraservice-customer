@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
+import '../services/api_service.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
 import '../utils/theme.dart';
@@ -162,7 +163,7 @@ class _LocationDialogState extends State<_LocationDialog> {
           city = placemarks.first.locality ?? placemarks.first.subAdministrativeArea ?? '';
         }
       } catch (_) {}
-      await FirebaseDatabase.instance.ref('customers/${widget.uid}').update({
+      await ApiService.updateCustomer({
         'lat': pos.latitude, 'lng': pos.longitude,
         if (city.isNotEmpty) 'city': city,
       });

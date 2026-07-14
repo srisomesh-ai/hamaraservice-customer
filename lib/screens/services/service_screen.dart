@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
+import '../../services/api_service.dart';
 import '../../utils/theme.dart';
 import '../../services/hs_catalog.dart';
 import '../booking/booking_flow_screen.dart';
@@ -35,27 +36,19 @@ class _ServiceScreenState extends State<ServiceScreen> {
     _svc = HSCatalog.getById(widget.svcId);
     if (_svc == null) { setState(() => _loading = false); return; }
     try {
-      // Web saves: hs_service_prices/{svcId}/{groupKey}/{optKey} = price
-      // App needs flat map: {groupKey_optKey: price}
-      final snap = await FirebaseDatabase.instance
-          .ref('hs_service_prices/${widget.svcId}').get();
-      if (snap.exists && snap.value is Map) {
-        final root = Map<String, dynamic>.from(snap.value as Map);
-        final flat = <String, int>{};
-        root.forEach((groupKey, groupVal) {
-          if (groupVal is Map) {
-            // group level: { '1bhk': 999, '2bhk': 1499 }
-            Map<String, dynamic>.from(groupVal).forEach((optKey, price) {
-              if (price is int || price is double) {
-                flat['${groupKey}_$optKey'] = price is int ? price : (price as double).toInt();
-              }
-            });
-          } else if (groupKey == 'base' && (groupVal is int || groupVal is double)) {
-            flat['base'] = groupVal is int ? groupVal : (groupVal as double).toInt();
-          }
-        });
-        _prices = flat;
-      }
+      // Load prices from MySQL API
+      final grouped = await ApiService.getServicePrices(widget.svcId);
+      final flat = <String, int>{};
+      grouped.forEach((groupKey, groupVal) {
+        if (groupVal is Map) {
+          (groupVal as Map).forEach((optKey, price) {
+            if (price is int || price is double) {
+              flat['${groupKey}_$optKey'] = price is int ? price : (price as double).toInt();
+            }
+          });
+        }
+      });
+      _prices = flat;
     } catch (_) {}
     // For visit-only services auto-select first option
     if (_isVisitOnly) {

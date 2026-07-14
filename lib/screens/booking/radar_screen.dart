@@ -171,11 +171,8 @@ class _RadarScreenState extends State<RadarScreen>
         return;
       }
       try {
-        final snap = await FirebaseDatabase.instance
-            .ref('active_bookings/${widget.bookingId}')
-            .get();
-        if (!snap.exists || snap.value == null) return;
-        final bkData = Map<String,dynamic>.from(snap.value as Map);
+        final bkData = await ApiService.getBooking(widget.bookingId);
+        if (bkData == null) return;
         final bkStatus = bkData['status']?.toString() ?? '';
         if ((bkStatus == "price_quoted") && bkData["acceptedBy"] != null && !_navigating) {
           t.cancel(); _rangeTimer?.cancel();

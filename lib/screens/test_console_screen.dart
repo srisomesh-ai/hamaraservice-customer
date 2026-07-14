@@ -156,17 +156,12 @@ class _TestConsoleScreenState extends State<TestConsoleScreen> {
     _log('Testing Firebase connection...');
     try {
       final uid = FirebaseAuth.instance.currentUser?.uid ?? 'test';
-      // Test MySQL connection instead
-await ApiService.getCustomer(uid); // ping
-if (false) await Future.value({
-        'ts': DateTime.now().toIso8601String(), 'app': 'customer'
-      });
+      // Test MySQL connection
       final snap = await ApiService.getCustomer(uid);
-      if (snap.exists) {
-        _log('✅ Firebase write+read OK');
-        // cleanup not needed for MySQL test
+      if (snap != null) {
+        _log('✅ MySQL connection OK');
       } else {
-        _log('❌ Firebase read failed');
+        _log('❌ MySQL read failed');
       }
     } catch (e) {
       _log('❌ Firebase error: $e');

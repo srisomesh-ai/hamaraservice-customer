@@ -454,46 +454,81 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     return Container(
       color: AppColors.teal,
       padding: EdgeInsets.only(
-        top: MediaQuery.of(context).padding.top + 8,
-        left: 16, right: 16, bottom: 12,
+        top: MediaQuery.of(context).padding.top + 6,
+        left: 16, right: 16, bottom: 10,
       ),
-      child: Row(
+      child: Column(
         children: [
-          Expanded(
-            child: GestureDetector(
-              onTap: () => Navigator.push(context,
-                MaterialPageRoute(builder: (_) => const LocationScreen()))
-                .then((_) => _loadAndUpdateCity()),
-              child: Row(
-                children: [
-                  const Icon(Icons.location_on_rounded, color: AppColors.brand, size: 20),
-                  const SizedBox(width: 6),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(children: [
-                          Text(_city, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Colors.white)),
-                          const Icon(Icons.keyboard_arrow_down_rounded, color: Colors.white, size: 18),
-                        ]),
-                        const Text('Tap to change location', style: TextStyle(fontSize: 11, color: Colors.white60)),
-                      ],
-                    ),
+          // ── Logo row ──────────────────────────────────
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              // HamaraService logo — large and prominent
+              Image.asset(
+                'slogo-png.png',
+                height: 48,
+                fit: BoxFit.contain,
+                errorBuilder: (_, __, ___) => const Text(
+                  'HamaraService',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0.5,
                   ),
-                ],
+                ),
               ),
-            ),
+              // Profile avatar
+              GestureDetector(
+                onTap: () => setState(() => _currentIndex = 2),
+                child: CircleAvatar(
+                  radius: 20,
+                  backgroundColor: AppColors.brand,
+                  backgroundImage: _user?.photoURL != null
+                      ? NetworkImage(_user!.photoURL!) : null,
+                  child: _user?.photoURL == null
+                      ? Text(
+                          (_user?.displayName ?? 'U')[0].toUpperCase(),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 15))
+                      : null,
+                ),
+              ),
+            ],
           ),
+          const SizedBox(height: 10),
+          // ── Location row ──────────────────────────────
           GestureDetector(
-            onTap: () => setState(() => _currentIndex = 2),
-            child: CircleAvatar(
-              radius: 18,
-              backgroundColor: AppColors.brand,
-              backgroundImage: _user?.photoURL != null ? NetworkImage(_user!.photoURL!) : null,
-              child: _user?.photoURL == null
-                  ? Text((_user?.displayName ?? 'U')[0].toUpperCase(),
-                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 14))
-                  : null,
+            onTap: () => Navigator.push(context,
+              MaterialPageRoute(builder: (_) => const LocationScreen()))
+              .then((_) => _loadAndUpdateCity()),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.15),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.white24),
+              ),
+              child: Row(children: [
+                const Icon(Icons.location_on_rounded,
+                  color: AppColors.brand, size: 18),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    _city,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const Icon(Icons.keyboard_arrow_down_rounded,
+                  color: Colors.white70, size: 18),
+              ]),
             ),
           ),
         ],

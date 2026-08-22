@@ -134,7 +134,7 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
       final uid = FirebaseAuth.instance.currentUser?.uid;
       if (uid != null) {
         try {
-          await ApiService.updateCustomer(uid, {
+          await ApiService.updateCustomer({
             'lat': pos.latitude, 'lng': pos.longitude,
           });
         } catch (_) {}

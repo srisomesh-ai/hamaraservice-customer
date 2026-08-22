@@ -58,8 +58,12 @@ class _ServiceScreenState extends State<ServiceScreen> {
     if (mounted) setState(() => _loading = false);
   }
 
-  int _p(String groupKey, String optKey) =>
-      _prices['${groupKey}_$optKey'] ?? 0;
+  int _p(String groupKey, String optKey) {
+    // Direct price first, then admin min price as starting price
+    final direct = _prices['${groupKey}_$optKey'] ?? 0;
+    if (direct > 0) return direct;
+    return _prices['${groupKey}_${optKey}_min'] ?? 0;
+  }
 
   bool get _isVisitOnly =>
       _svc != null &&

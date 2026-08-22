@@ -137,7 +137,7 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
         }).catchError((_) => false);
       }
     } catch (e) {
-      debugPrint('GPS capture failed: \$e');
+      debugPrint('GPS capture failed: $e');
     }
   }
 

@@ -115,7 +115,8 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
         if (placemarks.isNotEmpty) {
           final p = placemarks.first;
           addr = [p.street, p.subLocality, p.locality]
-              .where((s) => s != null && s.isNotEmpty)
+              .whereType<String>()
+              .where((s) => s.isNotEmpty)
               .join(', ');
         }
       } catch (_) {}
@@ -132,9 +133,11 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
       // Save to profile for next time
       final uid = FirebaseAuth.instance.currentUser?.uid;
       if (uid != null) {
-        ApiService.updateCustomer(uid, {
-          'lat': pos.latitude, 'lng': pos.longitude,
-        }).catchError((_) => false);
+        try {
+          await ApiService.updateCustomer(uid, {
+            'lat': pos.latitude, 'lng': pos.longitude,
+          });
+        } catch (_) {}
       }
     } catch (e) {
       debugPrint('GPS capture failed: $e');

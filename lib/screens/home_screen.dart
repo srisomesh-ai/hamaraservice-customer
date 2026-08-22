@@ -124,9 +124,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
   Future<void> _loadProviderPriceRanges() async {
     try {
-      // Load price ranges from MySQL — much faster than reading all providers
-      final city = _city != 'Your City' ? _city : null;
-      final ranges = await ApiService.getServicePriceRanges(city: city);
+      // Load price ranges from MySQL — no city filter so prices always show
+      // (city filtering happens at booking time via nearby search)
+      final ranges = await ApiService.getServicePriceRanges();
       final Map<String, Map<String,int>> parsed = {};
       ranges.forEach((svcId, val) {
         if (val is Map) {

@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:geocoding/geocoding.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -60,30 +62,83 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
 
   Future<void> _loadSavedLocation() async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) return;
-    try {
-      final profile = await ApiService.getCustomer(uid);
-      if (profile == null) return;
-      final data = profile;
-      final lat = (data['lat'] as num?)?.toDouble();
-      final lng = (data['lng'] as num?)?.toDouble();
-      final savedAddress = data['address']?.toString() ?? '';
-      final city = data['city']?.toString() ?? '';
-      setState(() {
-        if (lat != null && lng != null && lat != 0 && lng != 0) {
-          _customerLat = lat;
-          _customerLng = lng;
-        }
-        // Pre-fill address from saved address or city — user can edit if needed
-        if (_addressCtrl.text.isEmpty) {
-          if (savedAddress.isNotEmpty) {
-            _addressCtrl.text = savedAddress;
-          } else if (city.isNotEmpty) {
-            _addressCtrl.text = city;
+    // 1. Try saved profile first
+    if (uid != null) {
+      try {
+        final profile = await ApiService.getCustomer(uid);
+        if (profile != null) {
+          final lat = (profile['lat'] as num?)?.toDouble();
+          final lng = (profile['lng'] as num?)?.toDouble();
+          final savedAddress = profile['address']?.toString() ?? '';
+          final city = profile['city']?.toString() ?? '';
+          if (mounted) {
+            setState(() {
+              if (lat != null && lng != null && lat != 0 && lng != 0) {
+                _customerLat = lat;
+                _customerLng = lng;
+              }
+              if (_addressCtrl.text.isEmpty) {
+                if (savedAddress.isNotEmpty) {
+                  _addressCtrl.text = savedAddress;
+                } else if (city.isNotEmpty) {
+                  _addressCtrl.text = city;
+                }
+              }
+            });
           }
         }
-      });
-    } catch (e) {}
+      } catch (e) {}
+    }
+    // 2. If still no location — capture GPS right now
+    if (_customerLat == null) {
+      await _captureGPS();
+    }
+  }
+
+  Future<void> _captureGPS() async {
+    try {
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) return;
+
+      final pos = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.high,
+          timeLimit: const Duration(seconds: 10));
+
+      String addr = '';
+      try {
+        final placemarks = await placemarkFromCoordinates(
+            pos.latitude, pos.longitude);
+        if (placemarks.isNotEmpty) {
+          final p = placemarks.first;
+          addr = [p.street, p.subLocality, p.locality]
+              .where((s) => s != null && s.isNotEmpty)
+              .join(', ');
+        }
+      } catch (_) {}
+
+      if (mounted) {
+        setState(() {
+          _customerLat = pos.latitude;
+          _customerLng = pos.longitude;
+          if (_addressCtrl.text.isEmpty && addr.isNotEmpty) {
+            _addressCtrl.text = addr;
+          }
+        });
+      }
+      // Save to profile for next time
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid != null) {
+        ApiService.updateCustomer(uid, {
+          'lat': pos.latitude, 'lng': pos.longitude,
+        }).catchError((_) => false);
+      }
+    } catch (e) {
+      debugPrint('GPS capture failed: \$e');
+    }
   }
 
   Future<void> _loadNamePhone() async {

@@ -186,10 +186,13 @@ class _RadarScreenState extends State<RadarScreen>
   Future<void> _countProviders(int km) async {
     try {
       final svcId = widget.service['id']?.toString() ?? '';
+      // Derive city from the last part of the address for GPS-less fallback
+      final addrParts = widget.address.split(',');
+      final derivedCity = addrParts.isNotEmpty ? addrParts.last.trim() : '';
       final nearby = await ApiService.getNearbyProviders(
         lat: widget.lat ?? 0.0, lng: widget.lng ?? 0.0,
         svcId: svcId.isNotEmpty ? svcId : null,
-        city: widget.city,
+        city: derivedCity.isNotEmpty ? derivedCity : null,
         radius: km.toDouble(),
       );
       if (mounted) setState(() => _providersFound = nearby.length);

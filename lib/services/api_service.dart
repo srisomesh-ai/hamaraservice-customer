@@ -145,6 +145,7 @@ class ApiService {
     required double lat,
     required double lng,
     String? svcId,
+    String? city,
     double radius = 20,
   }) async {
     final params = {
@@ -153,6 +154,7 @@ class ApiService {
       'lng': lng.toString(),
       'radius': radius.toString(),
       if (svcId != null) 'svc_id': svcId,
+      if (city != null && city.isNotEmpty) 'city': city,
     };
     final res = await _get('providers.php', params: params);
     if (res['success'] == true) {

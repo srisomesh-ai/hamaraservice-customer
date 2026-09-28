@@ -3,12 +3,10 @@ import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_messaging/firebase_messaging.dart';
-import 'package:firebase_database/firebase_database.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../services/api_service.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../utils/theme.dart';
-import '../../services/firebase_service.dart';
 import 'radar_screen.dart';
 
 class BookingFlowScreen extends StatefulWidget {
@@ -36,6 +34,7 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
   bool _detectingLocation = false; // Always false - no re-fetch
   double? _customerLat;
   double? _customerLng;
+  String _city = '';
 
   final List<String> _timeSlots = [
     '07:00 AM','08:00 AM','09:00 AM','10:00 AM',
@@ -71,6 +70,7 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
           final lng = (profile['lng'] as num?)?.toDouble();
           final savedAddress = profile['address']?.toString() ?? '';
           final city = profile['city']?.toString() ?? '';
+          if (city.isNotEmpty) _city = city;
           if (mounted) {
             setState(() {
               if (lat != null && lng != null && lat != 0 && lng != 0) {
@@ -114,6 +114,9 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
             pos.latitude, pos.longitude);
         if (placemarks.isNotEmpty) {
           final p = placemarks.first;
+          if (_city.isEmpty) {
+            _city = p.locality ?? p.subAdministrativeArea ?? '';
+          }
           addr = [p.street, p.subLocality, p.locality]
               .whereType<String>()
               .where((s) => s.isNotEmpty)
@@ -180,43 +183,63 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
 
     setState(() => _loading = true);
     try {
-      final user = FirebaseAuth.instance.currentUser;
-      // Get customer FCM token to include in booking
-      String customerFcmToken = '';
-      try {
-        final token = await FirebaseMessaging.instance.getToken();
-        customerFcmToken = token ?? '';
-      } catch (_) {}
+      final address = _addressCtrl.text.trim();
+      final landmark = _landmarkCtrl.text.trim();
 
-      final bookingId = await FirebaseService.createBooking({
-        'customerFcmToken': customerFcmToken,
-        'service': widget.service['name'],
-        'svcId': widget.service['id'],
-        'icon': widget.service['icon'],
-        'price': widget.basePrice,
-        'priceVal': widget.basePrice,
-        'date': '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2,'0')}-${_selectedDate.day.toString().padLeft(2,'0')}',
-        'time': _selectedSlot,
-        'address': _addressCtrl.text.trim(),
-        'landmark': _landmarkCtrl.text.trim(),
-        'customer': _nameCtrl.text.trim(),
-        'phone': _phoneCtrl.text.trim(),
-        'customerId': user?.uid ?? '',
-        'customerEmail': user?.email ?? '',
-        'status': 'searching',
-        'lat': _customerLat ?? 0.0,
-        'lng': _customerLng ?? 0.0,
-        'summary': widget.summary.isNotEmpty ? widget.summary : ['${widget.service['name']} > Service booking'],
-      });
-      if (mounted) {
-        Navigator.pushReplacement(context, MaterialPageRoute(
-          builder: (_) => RadarScreen(
-            bookingId: bookingId, service: widget.service,
-            date: _selectedDate, timeSlot: _selectedSlot,
-            address: _addressCtrl.text.trim(), price: widget.basePrice,
-            lat: _customerLat, lng: _customerLng)));
+      // Server requires a city — profile/GPS city, else saved city, else the
+      // last part of the typed address.
+      String city = _city.trim();
+      if (city.isEmpty) {
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          city = (prefs.getString('user_city') ?? '').trim();
+        } catch (_) {}
       }
+      if (city.isEmpty) {
+        final parts = address.split(',').map((e) => e.trim())
+            .where((e) => e.isNotEmpty).toList();
+        city = parts.isNotEmpty ? parts.last : address;
+      }
+
+      // bookings.php `create` has no price/landmark/contact fields — carry the
+      // client estimate and selection summary in `notes` for the provider.
+      final summary = widget.summary.isNotEmpty
+          ? widget.summary
+          : ['${widget.service['name']} > Service booking'];
+      final notes = [
+        'Landmark: $landmark',
+        'Contact: ${_nameCtrl.text.trim()} (${_phoneCtrl.text.trim()})',
+        'Estimated price: Rs.${widget.basePrice}',
+        'Selected: ${summary.join('; ')}',
+      ].join('\n');
+
+      final res = await ApiService.createBooking(
+        svcId: widget.service['id']?.toString() ?? '',
+        svcName: widget.service['name']?.toString() ?? '',
+        svcIcon: widget.service['icon']?.toString() ?? '',
+        address: landmark.isNotEmpty ? '$address (Near: $landmark)' : address,
+        city: city,
+        lat: _customerLat ?? 0.0,
+        lng: _customerLng ?? 0.0,
+        slotDate: '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2,'0')}-${_selectedDate.day.toString().padLeft(2,'0')}',
+        slotTime: _selectedSlot,
+        notes: notes,
+      );
+      if (!mounted) return;
+      final bookingId = res['id']?.toString() ?? '';
+      if (res['success'] != true || bookingId.isEmpty) {
+        setState(() => _loading = false);
+        _showError(res['error']?.toString() ?? 'Booking failed. Please try again.');
+        return;
+      }
+      Navigator.pushReplacement(context, MaterialPageRoute(
+        builder: (_) => RadarScreen(
+          bookingId: bookingId, service: widget.service,
+          date: _selectedDate, timeSlot: _selectedSlot,
+          address: address, price: widget.basePrice,
+          lat: _customerLat, lng: _customerLng)));
     } catch (e) {
+      if (!mounted) return;
       setState(() => _loading = false);
       _showError('Booking failed. Please try again.');
     }

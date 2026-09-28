@@ -22,32 +22,66 @@ class ApiService {
   }
 
   // ── HTTP helpers ────────────────────────────────────────
+  // Never throw on bad responses: non-2xx / non-JSON / network errors all
+  // come back as {success:false, error:...} so callers can show a message.
+  static Map<String,dynamic> _decode(http.Response resp) {
+    dynamic decoded;
+    try {
+      decoded = jsonDecode(resp.body);
+    } catch (_) {
+      decoded = null;
+    }
+    final ok = resp.statusCode >= 200 && resp.statusCode < 300;
+    if (decoded is Map) {
+      final map = Map<String,dynamic>.from(decoded);
+      if (!ok) {
+        map['success'] = false;
+        map['error'] ??= 'Server error (${resp.statusCode})';
+      }
+      return map;
+    }
+    return {
+      'success': false,
+      'error': ok
+          ? 'Invalid server response'
+          : 'Server error (${resp.statusCode})',
+    };
+  }
+
   static Future<Map<String,dynamic>> _get(
       String endpoint, {Map<String,String>? params}) async {
-    var uri = Uri.parse('$_base/$endpoint');
-    if (params != null) uri = uri.replace(queryParameters: params);
-    final token = await _token();
-    final resp = await http.get(uri, headers: {
-      'Authorization': 'Bearer $token',
-      'Content-Type': 'application/json',
-    }).timeout(const Duration(seconds: 15));
-    return jsonDecode(resp.body) as Map<String,dynamic>;
+    try {
+      var uri = Uri.parse('$_base/$endpoint');
+      if (params != null) uri = uri.replace(queryParameters: params);
+      final token = await _token();
+      final resp = await http.get(uri, headers: {
+        'Authorization': 'Bearer $token',
+        'Content-Type': 'application/json',
+      }).timeout(const Duration(seconds: 15));
+      return _decode(resp);
+    } catch (e) {
+      return {'success': false, 'error': 'Network error. Please check your connection.'};
+    }
   }
 
   static Future<Map<String,dynamic>> _post(
       String endpoint, Map<String,dynamic> body,
       {Map<String,String>? params}) async {
-    var uri = Uri.parse('$_base/$endpoint');
-    if (params != null) uri = uri.replace(queryParameters: params);
-    final token = await _token();
-    final resp = await http.post(uri,
-      headers: {
-        'Authorization': 'Bearer $token',
-        'Content-Type': 'application/json',
-      },
-      body: jsonEncode(body),
-    ).timeout(const Duration(seconds: 15));
-    return jsonDecode(resp.body) as Map<String,dynamic>;
+    try {
+      var uri = Uri.parse('$_base/$endpoint');
+      if (params != null) uri = uri.replace(queryParameters: params);
+      final token = await _token();
+      final resp = await http.post(uri,
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode(body),
+      ).timeout(const Duration(seconds: 15));
+      return _decode(resp);
+    } catch (e) {
+      return {'success': false, 'error': 'Network error. Please check your connection.'};
+    }
   }
 
   // ── CUSTOMERS ───────────────────────────────────────────
@@ -173,8 +207,10 @@ class ApiService {
 
   // ── BOOKINGS ────────────────────────────────────────────
 
-  /// Create a new booking
-  static Future<String?> createBooking({
+  /// Create a new booking.
+  /// Returns {'success': true, 'id': '<booking id>'} or
+  /// {'success': false, 'error': '<message>'}.
+  static Future<Map<String,dynamic>> createBooking({
     required String svcId,
     required String svcName,
     String svcIcon = '',
@@ -199,9 +235,15 @@ class ApiService {
       if (notes    != null) 'notes':     notes,
     }, params: {'action': 'create'});
     if (res['success'] == true) {
-      return (res['data'] as Map)['id'] as String?;
+      final data = res['data'];
+      final id = data is Map ? data['id']?.toString() : null;
+      if (id != null && id.isNotEmpty) return {'success': true, 'id': id};
+      return {'success': false, 'error': 'Invalid server response'};
     }
-    return null;
+    return {
+      'success': false,
+      'error': res['error']?.toString() ?? res['message']?.toString() ?? 'Booking failed',
+    };
   }
 
   /// Get booking details
@@ -253,11 +295,13 @@ class ApiService {
     return res['success'] == true;
   }
 
-  /// Cancel booking
-  static Future<bool> cancelBooking(String bookingId) async {
-    final res = await _post('bookings.php',
-        {'booking_id': bookingId},
-        params: {'action': 'cancel'});
+  /// Cancel booking. [reason] is sent for the server to store if it
+  /// supports it (currently ignored by bookings.php `cancel`).
+  static Future<bool> cancelBooking(String bookingId, {String reason = ''}) async {
+    final res = await _post('bookings.php', {
+      'booking_id': bookingId,
+      if (reason.isNotEmpty) 'reason': reason,
+    }, params: {'action': 'cancel'});
     return res['success'] == true;
   }
 
@@ -291,6 +335,23 @@ class ApiService {
     return res['success'] == true;
   }
 
+  /// Server-side Razorpay signature verification (bookings.php
+  /// `razorpay_confirm`). Marks the booking paid on success.
+  /// Returns the raw response map ({success, data|error}).
+  static Future<Map<String,dynamic>> confirmRazorpayPayment({
+    required String bookingId,
+    required String razorpayOrderId,
+    required String razorpayPaymentId,
+    required String razorpaySignature,
+  }) {
+    return _post('bookings.php', {
+      'booking_id':          bookingId,
+      'razorpay_order_id':   razorpayOrderId,
+      'razorpay_payment_id': razorpayPaymentId,
+      'razorpay_signature':  razorpaySignature,
+    }, params: {'action': 'razorpay_confirm'});
+  }
+
   // ── LOCAL STORAGE (SharedPreferences) ───────────────────
 
   static Future<void> saveCurrentUser(Map<String,dynamic> data) async {
@@ -302,7 +363,12 @@ class ApiService {
     final prefs = await SharedPreferences.getInstance();
     final s = prefs.getString('hs_customer');
     if (s == null) return null;
-    return jsonDecode(s) as Map<String,dynamic>;
+    try {
+      final d = jsonDecode(s);
+      return d is Map ? Map<String,dynamic>.from(d) : null;
+    } catch (_) {
+      return null;
+    }
   }
 
   static Future<void> clearUser() async {

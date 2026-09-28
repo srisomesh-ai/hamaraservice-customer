@@ -15,6 +15,22 @@ class PaymentScreen extends StatefulWidget {
   const PaymentScreen({super.key, required this.bookingId, required this.booking});
   @override
   State<PaymentScreen> createState() => _PaymentScreenState();
+
+  // Booking ids whose PaymentScreen is currently open (or being opened), and
+  // ids already paid in this session. Shared by every poller (HomeScreen,
+  // MyBookingsScreen) so a 'verified' status doesn't push a new screen on
+  // every poll tick.
+  static final Set<String> _openIds = <String>{};
+  static final Set<String> _paidIds = <String>{};
+
+  /// Returns true if the caller may open a PaymentScreen for [bookingId].
+  /// The id stays reserved until the screen is disposed or [release] is called.
+  static bool reserve(String bookingId) {
+    if (_paidIds.contains(bookingId)) return false;
+    return _openIds.add(bookingId);
+  }
+
+  static void release(String bookingId) => _openIds.remove(bookingId);
 }
 
 class _PaymentScreenState extends State<PaymentScreen> {
@@ -32,6 +48,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
   @override
   void initState() {
     super.initState();
+    PaymentScreen._openIds.add(widget.bookingId);
     _loadPenalty();
     _razorpay = Razorpay();
     _razorpay.on(Razorpay.EVENT_PAYMENT_SUCCESS, _onSuccess);
@@ -40,7 +57,11 @@ class _PaymentScreenState extends State<PaymentScreen> {
   }
 
   @override
-  void dispose() { _razorpay.clear(); super.dispose(); }
+  void dispose() {
+    PaymentScreen.release(widget.bookingId);
+    _razorpay.clear();
+    super.dispose();
+  }
 
   Future<void> _loadPenalty() async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
@@ -50,45 +71,99 @@ class _PaymentScreenState extends State<PaymentScreen> {
   }
 
   // confirmedPrice = negotiated & agreed price; fallback to priceVal for non-negotiated bookings
-  int get _baseAmount => ((widget.booking['confirmedPrice'] ?? widget.booking['priceVal'] ?? widget.booking['price'] ?? 0) as num).toInt();
+  // (MySQL rows use snake_case and may return numbers as strings.)
+  int get _baseAmount {
+    final b = widget.booking;
+    for (final k in ['confirmed_price', 'confirmedPrice', 'amount', 'priceVal', 'price']) {
+      final v = num.tryParse(b[k]?.toString() ?? '');
+      if (v != null && v > 0) return v.toInt();
+    }
+    return 0;
+  }
   int get _totalAmount => _baseAmount + _pendingPenalty;
 
   void _onSuccess(PaymentSuccessResponse r) async {
     HapticFeedback.heavyImpact();
+    if (!mounted) return;
     setState(() => _loading = true);
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+
+    // 1. Verify the Razorpay signature on a server BEFORE touching the booking.
+    //    Primary: MySQL API (verifies HMAC + marks payment paid).
+    //    Fallback: Cloud Run verifier (orders created by the Cloud Run
+    //    createOrder may be signed with a different key).
+    bool verified = false;
+    String verifyError = '';
     try {
-      // Complete booking in MySQL — handles status, commission, provider earnings + FCM
-      await ApiService.completeBooking(
+      final res = await ApiService.confirmRazorpayPayment(
+        bookingId: widget.bookingId,
+        razorpayOrderId: r.orderId ?? '',
+        razorpayPaymentId: r.paymentId ?? '',
+        razorpaySignature: r.signature ?? '',
+      );
+      verified = res['success'] == true;
+      if (!verified) verifyError = res['error']?.toString() ?? '';
+    } catch (_) {}
+    if (!verified) {
+      verified = await _verifyServer(r, uid);
+    }
+
+    if (!verified) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+      final pid = r.paymentId ?? '';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Payment could not be verified'
+            '${verifyError.isNotEmpty ? ' ($verifyError)' : ''}. '
+            'If money was debited, contact support'
+            '${pid.isNotEmpty ? ' with payment ID $pid' : ''}.'),
+        backgroundColor: AppColors.red,
+        duration: const Duration(seconds: 8)));
+      return;
+    }
+
+    // 2. Only after verification: complete booking in MySQL — handles status,
+    //    commission, provider earnings + FCM. Amount is derived server-side.
+    try {
+      final done = await ApiService.completeBooking(
         bookingId:           widget.bookingId,
         razorpayPaymentId:   r.paymentId ?? '',
         razorpayOrderId:     r.orderId   ?? '',
       );
-      // FCM notification to provider sent by MySQL bookings API
-      // Server verify (non-blocking)
-      final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
-      _verifyServer(r, uid);
-      HapticFeedback.heavyImpact();
-      setState(() { _loading = false; _paid = true; });
-      await Future.delayed(const Duration(milliseconds: 1000));
-      if (mounted) Navigator.pushReplacement(context, MaterialPageRoute(
-          builder: (_) => ReviewScreen(bookingId: widget.bookingId, booking: widget.booking)));
+      if (!done) debugPrint('completeBooking failed for ${widget.bookingId}');
     } catch (e) {
-      setState(() => _loading = false);
+      debugPrint('completeBooking error: $e');
     }
+
+    PaymentScreen._paidIds.add(widget.bookingId);
+    HapticFeedback.heavyImpact();
+    if (!mounted) return;
+    setState(() { _loading = false; _paid = true; });
+    await Future.delayed(const Duration(milliseconds: 1000));
+    if (mounted) Navigator.pushReplacement(context, MaterialPageRoute(
+        builder: (_) => ReviewScreen(bookingId: widget.bookingId, booking: widget.booking)));
   }
 
-  void _verifyServer(PaymentSuccessResponse r, String uid) {
-    http.post(Uri.parse('$_verifyPayment'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        'razorpay_order_id': r.orderId ?? '',
-        'razorpay_payment_id': r.paymentId ?? '',
-        'razorpay_signature': r.signature ?? '',
-        'booking_id': widget.bookingId,
-        'amount': _totalAmount,
-        'provider_id': widget.booking['providerId'] ?? '',
-        'customer_id': uid,
-      })).catchError((_) {});
+  /// Cloud Run signature verification. Returns true only on an explicit
+  /// success response. No client-computed amount is sent.
+  Future<bool> _verifyServer(PaymentSuccessResponse r, String uid) async {
+    try {
+      final res = await http.post(Uri.parse(_verifyPayment),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'razorpay_order_id': r.orderId ?? '',
+          'razorpay_payment_id': r.paymentId ?? '',
+          'razorpay_signature': r.signature ?? '',
+          'booking_id': widget.bookingId,
+          'provider_id': widget.booking['providerId'] ?? widget.booking['provider_id'] ?? '',
+          'customer_id': uid,
+        })).timeout(const Duration(seconds: 20));
+      if (res.statusCode < 200 || res.statusCode >= 300) return false;
+      final body = jsonDecode(res.body);
+      return body is Map && (body['success'] == true || body['verified'] == true);
+    } catch (_) {
+      return false;
+    }
   }
 
   void _onError(PaymentFailureResponse r) {

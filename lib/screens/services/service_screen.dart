@@ -75,7 +75,20 @@ class _ServiceScreenState extends State<ServiceScreen> {
     if (_svc == null) return 0;
     int t = 0;
     for (final g in _svc!.groups) {
-      if (g.style == 'task' || g.style == 'info') continue;
+      if (g.style == 'task') {
+        // Selected task options carry their own price unless a BHK sub-group
+        // (showOn == task key) prices that task instead.
+        for (final o in g.items) {
+          if (!_selectedTasks.contains('task_${o.key}')) continue;
+          final hasSub = _svc!.groups
+              .any((sg) => sg.style == 'bhk' && sg.showOn == o.key);
+          if (hasSub) continue;
+          final p = _p(g.key, o.key);
+          t += p > 0 ? p : o.price;
+        }
+        continue;
+      }
+      if (g.style == 'info') continue;
       if (g.style == 'bhk') {
         final show = g.showOn == null || _selectedTasks.contains('task_${g.showOn}');
         if (!show) continue;
@@ -137,11 +150,13 @@ class _ServiceScreenState extends State<ServiceScreen> {
     setState(() => _selectedBhk[groupKey] = optKey);
   }
 
-  void _book() {
+  Future<void> _book() async {
     HapticFeedback.mediumImpact();
     if (FirebaseAuth.instance.currentUser == null) {
-      Navigator.push(context, MaterialPageRoute(builder: (_) => const LoginScreen()));
-      return;
+      // LoginScreen pops back here after a successful login, so the booking
+      // continues with the same selection.
+      await Navigator.push(context, MaterialPageRoute(builder: (_) => const LoginScreen()));
+      if (!mounted || FirebaseAuth.instance.currentUser == null) return;
     }
     Navigator.push(context, MaterialPageRoute(
       builder: (_) => BookingFlowScreen(

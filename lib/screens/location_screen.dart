@@ -111,6 +111,12 @@ class _LocationScreenState extends State<LocationScreen> {
     }
 
     if (!mounted) return;
+    // Opened via Navigator.push from HomeScreen — return to it with the city
+    // instead of stacking a second HomeScreen.
+    if (Navigator.of(context).canPop()) {
+      Navigator.of(context).pop(city.trim());
+      return;
+    }
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(

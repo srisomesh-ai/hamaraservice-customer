@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart' show kReleaseMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -70,7 +71,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     {'id':'SVC005','icon':'🛋️','name':'Sofa / Carpet','cat':'Cleaning','color':0xFFE0F7FA,'popular':true,'img':'assets/images/sofa-carpet-cleaning.jpg'},
     {'id':'SVC006','icon':'🧴','name':'Laundry / Ironing','cat':'Cleaning','color':0xFFEDE7F6,'popular':false,'img':'assets/images/laundry-ironing.jpg'},
     {'id':'SVC007','icon':'❄️','name':'AC Service','cat':'Repairs','color':0xFFE3F2FD,'popular':true,'img':'assets/images/ac-service.jpg'},
-    {'id':'SVC009','icon':'🔧','name':'Appliance Repair','cat':'Repairs','color':0xFFFBE9E7,'popular':false,'img':'assets/images/laundry-ironing.jpg'},
+    {'id':'SVC009','icon':'🔌','name':'Appliance Repair','cat':'Repairs','color':0xFFFBE9E7,'popular':false,'img':''},
     {'id':'SVC012','icon':'⚡','name':'Electrician','cat':'Repairs','color':0xFFFFF9C4,'popular':true,'img':'assets/images/electrician.jpg'},
     {'id':'SVC011','icon':'🔧','name':'Plumber','cat':'Repairs','color':0xFFE1F5FE,'popular':true,'img':'assets/images/plumber.jpg'},
     {'id':'SVC013','icon':'🔨','name':'Carpenter','cat':'Repairs','color':0xFFEFEBE9,'popular':false,'img':'assets/images/carpenter.jpg'},
@@ -93,7 +94,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     {'id':'SVC010','icon':'💧','name':'Water Purifier','cat':'Repairs','color':0xFFE1F5FE,'popular':false,'img':'assets/images/water-purifier.jpg'},
     {'id':'SVC015','icon':'📷','name':'CCTV','cat':'Repairs','color':0xFFECEFF1,'popular':false,'img':'assets/images/cctv.jpg'},
     {'id':'SVC034','icon':'💂','name':'Security Guard','cat':'Care','color':0xFFEEEEEE,'popular':false,'img':'assets/images/security-guard.jpg'},
-    {'id':'SVC022','icon':'🏗️','name':'Civil / Mason','cat':'Repairs','color':0xFFFBE9E7,'popular':false,'img':'assets/images/civil-mason.jpg'},
+    {'id':'SVC022','icon':'👨‍🍳','name':'Cook','cat':'Care','color':0xFFFBE9E7,'popular':false,'img':'assets/images/cook.jpg'},
   ];
 
   List<Map<String, dynamic>> get _filtered {
@@ -304,14 +305,18 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             _appOtpBooking = data;
           });
         } else if (status == 'verified' && _appOtpBookingId == bookingId) {
-          setState(() => _showAppOtpPopup = false);
-          // Load booking and navigate to payment
+          if (_showAppOtpPopup) setState(() => _showAppOtpPopup = false);
+          // Open payment once — this poller ticks every 5s and MyBookings
+          // polls too; PaymentScreen.reserve() de-duplicates across both.
+          if (!PaymentScreen.reserve(bookingId)) continue;
           ApiService.getBooking(bookingId).then((booking) {
             if (booking != null && mounted) {
               Navigator.push(context, MaterialPageRoute(
                   builder: (_) => PaymentScreen(bookingId: bookingId, booking: booking)));
+            } else {
+              PaymentScreen.release(bookingId);
             }
-          });
+          }).catchError((_) { PaymentScreen.release(bookingId); });
         }
       }
     });
@@ -397,7 +402,14 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   }
 
 
+  static String _initial(String? name) {
+    final n = (name ?? '').trim();
+    return n.isEmpty ? 'U' : n.substring(0, 1).toUpperCase();
+  }
+
   void _secretTap() {
+    // Test console is a debug tool only — never reachable in release builds.
+    if (kReleaseMode) return;
     final now = DateTime.now();
     if (_lastTap != null && now.difference(_lastTap!).inSeconds > 2) {
       _testTapCount = 0;
@@ -489,7 +501,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                       ? NetworkImage(_user!.photoURL!) : null,
                   child: _user?.photoURL == null
                       ? Text(
-                          (_user?.displayName ?? 'U')[0].toUpperCase(),
+                          _initial(_user?.displayName),
                           style: const TextStyle(
                             color: Colors.white,
                             fontWeight: FontWeight.w700,

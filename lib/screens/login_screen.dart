@@ -38,14 +38,20 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   // ── Biometric Setup ───────────────────────────────────────────────────────
+  // Biometric login never stores or replays a password: it only unlocks an
+  // existing Firebase session (currentUser persisted by Firebase Auth). If
+  // there is no session, the user must sign in with their password.
   Future<void> _checkBiometrics() async {
     try {
+      // Purge any password saved by older builds.
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('saved_pwd');
       final canCheck = await _localAuth.canCheckBiometrics;
       final isSupported = await _localAuth.isDeviceSupported();
       if (!mounted) return;
-      setState(() => _bioAvail = canCheck && isSupported);
+      final hasSession = FirebaseAuth.instance.currentUser != null;
+      setState(() => _bioAvail = canCheck && isSupported && hasSession);
       if (_bioAvail) {
-        final prefs = await SharedPreferences.getInstance();
         setState(() => _bioEnabled = prefs.getBool('bio_enabled') ?? false);
         // Auto-trigger if enabled
         if (_bioEnabled) _biometricLogin();
@@ -53,13 +59,24 @@ class _LoginScreenState extends State<LoginScreen> {
     } catch (_) {}
   }
 
+  /// Leave the login screen. When it was pushed (e.g. from ServiceScreen or
+  /// Profile) pop back with `true` so the caller can continue; otherwise
+  /// replace it with HomeScreen.
+  void _finishLogin() {
+    if (!mounted) return;
+    final nav = Navigator.of(context);
+    if (nav.canPop()) {
+      nav.pop(true);
+    } else {
+      nav.pushReplacement(MaterialPageRoute(builder: (_) => const HomeScreen()));
+    }
+  }
+
   Future<void> _biometricLogin() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final savedEmail = prefs.getString('saved_email') ?? '';
-      final savedPwd   = prefs.getString('saved_pwd')   ?? '';
-      if (savedEmail.isEmpty || savedPwd.isEmpty) {
-        setState(() => _error = 'Please sign in once with email/password first to enable biometric login.');
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) {
+        setState(() => _error = 'Session expired. Please sign in with your email and password.');
         return;
       }
       final auth = await _localAuth.authenticate(
@@ -72,8 +89,16 @@ class _LoginScreenState extends State<LoginScreen> {
       );
       if (!auth) return;
       setState(() { _loading = true; _error = ''; });
-      await FirebaseAuth.instance.signInWithEmailAndPassword(email: savedEmail, password: savedPwd);
-      if (mounted) Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const HomeScreen()));
+      // Make sure the persisted session is still valid server-side.
+      await user.reload();
+      if (FirebaseAuth.instance.currentUser == null) {
+        throw Exception('session expired');
+      }
+      if (mounted) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool('bio_enabled', true);
+      }
+      _finishLogin();
     } on PlatformException catch (e) {
       setState(() { _loading = false; _error = 'Biometric failed: ${e.message}'; });
     } catch (e) {
@@ -98,8 +123,7 @@ class _LoginScreenState extends State<LoginScreen> {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('saved_email', result.user?.email ?? '');
       await prefs.setString('auth_method', 'google');
-      if (mounted) Navigator.pushReplacement(context,
-          MaterialPageRoute(builder: (_) => const HomeScreen()));
+      _finishLogin();
     } catch (e) {
       setState(() {
         _loading = false;
@@ -118,17 +142,12 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() { _loading = true; _error = ''; });
     try {
       await FirebaseAuth.instance.signInWithEmailAndPassword(email: email, password: pwd);
-      // Save for biometric
+      // Remember the email only — the password is never stored.
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('saved_email', email);
-      await prefs.setString('saved_pwd', pwd);
+      await prefs.remove('saved_pwd');
       await prefs.setString('auth_method', 'email');
-      // Enable biometric if available
-      if (_bioAvail) {
-        await prefs.setBool('bio_enabled', true);
-        setState(() => _bioEnabled = true);
-      }
-      if (mounted) Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const HomeScreen()));
+      _finishLogin();
     } on FirebaseAuthException catch (e) {
       final msgs = {
         'user-not-found':     'No account with this email. Please register.',
@@ -168,15 +187,11 @@ class _LoginScreenState extends State<LoginScreen> {
       );
       if (customer != null) await ApiService.saveCurrentUser(customer);
 
-      // Save for biometric
+      // Remember the email only — the password is never stored.
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('saved_email', email);
-      await prefs.setString('saved_pwd', pwd);
-      if (_bioAvail) {
-        await prefs.setBool('bio_enabled', true);
-        setState(() => _bioEnabled = true);
-      }
-      if (mounted) Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const HomeScreen()));
+      await prefs.remove('saved_pwd');
+      _finishLogin();
     } on FirebaseAuthException catch (e) {
       final msgs = {
         'email-already-in-use': 'Email already registered. Please sign in.',

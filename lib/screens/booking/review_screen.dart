@@ -38,18 +38,31 @@ class _ReviewScreenState extends State<ReviewScreen> {
     setState(() => _submitting = true);
     try {
       final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
-      final provId = widget.booking['providerId'] ?? '';
-      final comment = _commentCtrl.text.trim().isNotEmpty
-          ? _commentCtrl.text.trim()
-          : _selectedQuick.join(', ');
+      // MySQL rows use provider_id; older RTDB maps used providerId.
+      final provId = (widget.booking['provider_id'] ??
+              widget.booking['providerId'] ?? '').toString();
+      // Combine selected quick-review chips and the typed comment.
+      final typed = _commentCtrl.text.trim();
+      final comment = [
+        if (_selectedQuick.isNotEmpty) _selectedQuick.join(', '),
+        if (typed.isNotEmpty) typed,
+      ].join('. ');
 
       // Submit review to MySQL — auto updates provider rating
-      await ApiService.submitReview(
+      final ok = await ApiService.submitReview(
         bookingId:  widget.bookingId,
         providerId: provId,
         rating:     _rating,
-        comment:    _commentCtrl.text.trim(),
+        comment:    comment,
       );
+      if (!mounted) return;
+      if (!ok) {
+        setState(() => _submitting = false);
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Could not submit review. Please try again.'),
+          backgroundColor: AppColors.red));
+        return;
+      }
 
       setState(() { _submitting = false; _submitted = true; });
     } catch (e) {

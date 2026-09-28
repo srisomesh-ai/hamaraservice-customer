@@ -50,8 +50,33 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
     _loadBookings(uid);
+    // Never stack pollers: cancel any previous periodic stream first.
+    _listener?.cancel();
     _listener = Stream.periodic(const Duration(seconds: 5))
         .listen((_) => _loadBookings(uid));
+  }
+
+  Future<void> _refresh() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+    await _loadBookings(uid);
+  }
+
+  /// Stop per-booking watchers for bookings that are gone or finished.
+  void _pruneWatchers() {
+    final live = <String>{};
+    for (final b in _bookings) {
+      final id = b['id']?.toString() ?? '';
+      final st = b['status']?.toString() ?? '';
+      if (id.isNotEmpty && st != 'completed' && st != 'cancelled') live.add(id);
+    }
+    for (final m in [_otpWatchers, _acceptWatchers]) {
+      final stale = m.keys.where((k) => !live.contains(k)).toList();
+      for (final k in stale) {
+        m[k]?.cancel();
+        m.remove(k);
+      }
+    }
   }
 
   Future<void> _loadBookings(String uid) async {
@@ -61,6 +86,8 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
     } catch (_) {
       if (mounted) setState(() => _loading = false);
     }
+    if (!mounted) return;
+    _pruneWatchers();
     // Watch active bookings for status changes
     for (final b in _bookings) {
       final id = b['id']?.toString() ?? '';
@@ -135,9 +162,11 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
       if (status == 'waiting' && otp.isNotEmpty) {
         setState(() { _showOtpPopup = true; _otpCode = otp; _otpBookingId = bookingId; _otpService = service; });
       } else if (status == 'verified') {
-        setState(() => _showOtpPopup = false);
+        if (_showOtpPopup) setState(() => _showOtpPopup = false);
         final booking = _bookings.firstWhere((b) => b['id'] == bookingId, orElse: () => {});
-        if (booking.isNotEmpty && mounted) {
+        // Open payment only once per booking (this watcher ticks every 4s and
+        // HomeScreen polls too) — PaymentScreen.reserve() de-duplicates.
+        if (booking.isNotEmpty && mounted && PaymentScreen.reserve(bookingId)) {
           Navigator.push(context, MaterialPageRoute(
               builder: (_) => PaymentScreen(bookingId: bookingId, booking: booking)));
         }
@@ -209,25 +238,28 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
         ),
       ),
     );
+    // Read the free-text reason BEFORE disposing its controller.
+    final otherText = reasonCtrl.text.trim();
     reasonCtrl.dispose();
     if (confirmed != true || selectedReason == null) return;
 
     // Play cancel sound
     HapticFeedback.heavyImpact();
 
-    final cancelReason = selectedReason == 'Other reason' && reasonCtrl.text.trim().isNotEmpty
-        ? reasonCtrl.text.trim() : selectedReason!;
-    final update = {
-      'status': 'cancelled', 'cancelledAt': DateTime.now().toIso8601String(),
-      'cancelledBy': 'customer', 'cancelReason': cancelReason,
-    };
-    if (['accepted','active'].contains(status)) {
-      update['penalty'] = '20';
+    final cancelReason = selectedReason == 'Other reason' && otherText.isNotEmpty
+        ? otherText : selectedReason!;
+    final ok = await ApiService.cancelBooking(id, reason: cancelReason);
+    if (!mounted) return;
+    if (!ok) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Could not cancel booking. Please try again.'),
+        backgroundColor: AppColors.red, duration: Duration(seconds: 3)));
+      return;
     }
-    await ApiService.cancelBooking(id);
-    if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text(['accepted','active'].contains(status) ? 'Cancelled. Rs.20 penalty applied.' : 'Booking cancelled.'),
       backgroundColor: AppColors.red, duration: const Duration(seconds: 3)));
+    _refresh();
   }
 
   @override
@@ -253,7 +285,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
       ]));
     }
     return RefreshIndicator(
-      onRefresh: () async { _listen(); },
+      onRefresh: _refresh,
       color: AppColors.teal,
       child: ListView.builder(padding: const EdgeInsets.all(16),
         itemCount: _bookings.length, itemBuilder: (_, i) => _card(_bookings[i])));

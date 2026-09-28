@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_database/firebase_database.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../services/api_service.dart';
 import '../../utils/theme.dart';
 import '../../services/firebase_service.dart';
@@ -61,16 +62,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
       _showSnack('Please enter your name', AppColors.red);
       return;
     }
+    final uid = _user?.uid;
+    if (uid == null) return;
     setState(() => _saving = true);
     try {
-      final uid = _user?.uid;
-      if (uid == null) return;
 
       // Update Firebase Auth display name
       await _user?.updateDisplayName(_nameCtrl.text.trim());
 
-      // Save to Realtime DB
-      await ApiService.updateCustomer({
+      // Save to MySQL
+      final saved = await ApiService.updateCustomer({
         'name':      _nameCtrl.text.trim(),
         'phone':     _phoneCtrl.text.trim(),
         'address':   _addressCtrl.text.trim(),
@@ -80,11 +81,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
         'updatedAt': DateTime.now().toIso8601String(),
       });
 
-      _showSnack('Profile saved successfully!', AppColors.green);
+      if (!mounted) return;
+      if (saved) {
+        _showSnack('Profile saved successfully!', AppColors.green);
+      } else {
+        _showSnack('Failed to save. Please try again.', AppColors.red);
+      }
     } catch (e) {
-      _showSnack('Failed to save. Please try again.', AppColors.red);
+      if (mounted) _showSnack('Failed to save. Please try again.', AppColors.red);
+    } finally {
+      if (mounted) setState(() => _saving = false);
     }
-    setState(() => _saving = false);
   }
 
   void _showSnack(String msg, Color color) {
@@ -283,6 +290,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
             child: OutlinedButton(
               onPressed: () async {
                 await FirebaseService.signOut();
+                // Clear local credentials / cached profile.
+                try {
+                  final prefs = await SharedPreferences.getInstance();
+                  await prefs.remove('saved_pwd');
+                  await prefs.remove('bio_enabled');
+                  await prefs.remove('hs_customer');
+                } catch (_) {}
                 if (mounted) Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const LoginScreen()));
               },
               style: OutlinedButton.styleFrom(

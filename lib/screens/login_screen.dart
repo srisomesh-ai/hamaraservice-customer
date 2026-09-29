@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_database/firebase_database.dart';
 import '../services/api_service.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -176,7 +175,6 @@ class _LoginScreenState extends State<LoginScreen> {
       await cred.user?.updateDisplayName(name);
 
       // Save full profile to MySQL
-      final uid = cred.user!.uid;
       final customer = await ApiService.registerCustomer(
         name:       name,
         phone:      _phoneCtrl.text.trim(),

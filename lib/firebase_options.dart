@@ -10,8 +10,6 @@ class DefaultFirebaseOptions {
     appId: '1:1064274729048:android:4e70e7686be47c7281d22d',
     messagingSenderId: '1064274729048',
     projectId: 'hamaraservice-s009',
-    databaseURL:
-        'https://hamaraservice-s009-default-rtdb.asia-southeast1.firebasedatabase.app',
     storageBucket: 'hamaraservice-s009.firebasestorage.app',
   );
 }

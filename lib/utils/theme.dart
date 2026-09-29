@@ -65,7 +65,5 @@ class AppTheme {
 }
 
 class AppConstants {
-  static const firebaseDbUrl =
-      'https://hamaraservice-s009-default-rtdb.asia-southeast1.firebasedatabase.app';
   static const appName = 'HamaraService';
 }

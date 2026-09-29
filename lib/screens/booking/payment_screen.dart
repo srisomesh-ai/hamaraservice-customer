@@ -1,14 +1,19 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_database/firebase_database.dart';
 import '../../services/api_service.dart';
-import 'package:http/http.dart' as http;
 import 'package:razorpay_flutter/razorpay_flutter.dart';
 import '../../utils/theme.dart';
 import 'review_screen.dart';
 
+/// Pays for a booking whose status is active/completed and whose
+/// payment_status is not 'paid' (see [PaymentScreen.isPayable]).
+///
+/// Online: create-order.php → Razorpay checkout → bookings.php
+/// razorpay_confirm (server verifies the signature and marks it paid).
+/// Cash: bookings.php mark_paid → 'cash_pending' until the provider confirms.
+/// The customer never completes the booking — the provider does that with
+/// the customer's completion OTP.
 class PaymentScreen extends StatefulWidget {
   final String bookingId;
   final Map<String, dynamic> booking;
@@ -16,18 +21,39 @@ class PaymentScreen extends StatefulWidget {
   @override
   State<PaymentScreen> createState() => _PaymentScreenState();
 
-  // Booking ids whose PaymentScreen is currently open (or being opened), and
-  // ids already paid in this session. Shared by every poller (HomeScreen,
-  // MyBookingsScreen) so a 'verified' status doesn't push a new screen on
-  // every poll tick.
+  // Booking ids whose PaymentScreen is currently open (or being opened), ids
+  // already paid in this session, and ids we already auto-prompted for.
+  // Shared by every poller (HomeScreen, MyBookingsScreen) so a payable status
+  // doesn't push a new screen on every poll tick.
   static final Set<String> _openIds = <String>{};
   static final Set<String> _paidIds = <String>{};
+  static final Set<String> _promptedIds = <String>{};
+
+  /// Contract: pay when status in (active, completed) and not yet paid.
+  /// 'cash_pending' is excluded — the provider still has to confirm cash.
+  static bool isPayable(Map<String, dynamic> b) {
+    final id = b['id']?.toString() ?? '';
+    if (_paidIds.contains(id)) return false;
+    final status = b['status']?.toString() ?? '';
+    final pay = b['payment_status']?.toString() ?? '';
+    return (status == 'active' || status == 'completed') &&
+        pay != 'paid' && pay != 'cash_pending';
+  }
 
   /// Returns true if the caller may open a PaymentScreen for [bookingId].
   /// The id stays reserved until the screen is disposed or [release] is called.
   static bool reserve(String bookingId) {
     if (_paidIds.contains(bookingId)) return false;
     return _openIds.add(bookingId);
+  }
+
+  /// Like [reserve], but only succeeds once per booking per app session, so an
+  /// automatic prompt doesn't reappear after the customer closes the screen.
+  static bool reserveAutoPrompt(String bookingId) {
+    if (_promptedIds.contains(bookingId)) return false;
+    if (!reserve(bookingId)) return false;
+    _promptedIds.add(bookingId);
+    return true;
   }
 
   static void release(String bookingId) => _openIds.remove(bookingId);
@@ -37,19 +63,14 @@ class _PaymentScreenState extends State<PaymentScreen> {
   bool _loading = false;
   bool _paid = false;
   bool _creatingOrder = false;
-  int _pendingPenalty = 0;
+  bool _cashLoading = false;
+  int _serverAmount = 0; // rupees, from create-order.php
   late Razorpay _razorpay;
-
-  // Firebase Cloud Functions — no Hostinger dependency
-  static const String _createOrder  = 'https://createorder-mlchyp6tra-as.a.run.app';
-  static const String _verifyPayment = 'https://verifypayment-mlchyp6tra-as.a.run.app';
-  static const String _notifyBooking = 'https://notifybooking-mlchyp6tra-as.a.run.app';
 
   @override
   void initState() {
     super.initState();
     PaymentScreen._openIds.add(widget.bookingId);
-    _loadPenalty();
     _razorpay = Razorpay();
     _razorpay.on(Razorpay.EVENT_PAYMENT_SUCCESS, _onSuccess);
     _razorpay.on(Razorpay.EVENT_PAYMENT_ERROR, _onError);
@@ -63,35 +84,37 @@ class _PaymentScreenState extends State<PaymentScreen> {
     super.dispose();
   }
 
-  Future<void> _loadPenalty() async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) return;
-    // Penalty managed in MySQL — skip for now
-    setState(() => _pendingPenalty = 0);
+  String _s(List<String> keys, [String fallback = '']) {
+    for (final k in keys) {
+      final v = widget.booking[k]?.toString() ?? '';
+      if (v.isNotEmpty) return v;
+    }
+    return fallback;
   }
 
-  // confirmedPrice = negotiated & agreed price; fallback to priceVal for non-negotiated bookings
-  // (MySQL rows use snake_case and may return numbers as strings.)
+  String get _serviceName => _s(['svc_name', 'service'], 'Home Service');
+  String get _serviceIcon => _s(['svc_icon', 'icon'], '🔧');
+  String get _providerName => _s(['provider_name', 'providerName']);
+
+  // Server-side payable = confirmed_price, else amount (bookingPayable()).
+  // MySQL rows may return numbers as strings.
   int get _baseAmount {
     final b = widget.booking;
-    for (final k in ['confirmed_price', 'confirmedPrice', 'amount', 'priceVal', 'price']) {
+    for (final k in ['confirmed_price', 'amount', 'confirmedPrice', 'price']) {
       final v = num.tryParse(b[k]?.toString() ?? '');
       if (v != null && v > 0) return v.toInt();
     }
     return 0;
   }
-  int get _totalAmount => _baseAmount + _pendingPenalty;
+  int get _totalAmount => _serverAmount > 0 ? _serverAmount : _baseAmount;
 
   void _onSuccess(PaymentSuccessResponse r) async {
     HapticFeedback.heavyImpact();
     if (!mounted) return;
     setState(() => _loading = true);
-    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
 
-    // 1. Verify the Razorpay signature on a server BEFORE touching the booking.
-    //    Primary: MySQL API (verifies HMAC + marks payment paid).
-    //    Fallback: Cloud Run verifier (orders created by the Cloud Run
-    //    createOrder may be signed with a different key).
+    // Verify the Razorpay signature server-side; this also marks the
+    // booking paid. Nothing else is trusted client-side.
     bool verified = false;
     String verifyError = '';
     try {
@@ -104,9 +127,6 @@ class _PaymentScreenState extends State<PaymentScreen> {
       verified = res['success'] == true;
       if (!verified) verifyError = res['error']?.toString() ?? '';
     } catch (_) {}
-    if (!verified) {
-      verified = await _verifyServer(r, uid);
-    }
 
     if (!verified) {
       if (!mounted) return;
@@ -122,54 +142,29 @@ class _PaymentScreenState extends State<PaymentScreen> {
       return;
     }
 
-    // 2. Only after verification: complete booking in MySQL — handles status,
-    //    commission, provider earnings + FCM. Amount is derived server-side.
-    try {
-      final done = await ApiService.completeBooking(
-        bookingId:           widget.bookingId,
-        razorpayPaymentId:   r.paymentId ?? '',
-        razorpayOrderId:     r.orderId   ?? '',
-      );
-      if (!done) debugPrint('completeBooking failed for ${widget.bookingId}');
-    } catch (e) {
-      debugPrint('completeBooking error: $e');
-    }
-
     PaymentScreen._paidIds.add(widget.bookingId);
     HapticFeedback.heavyImpact();
     if (!mounted) return;
     setState(() { _loading = false; _paid = true; });
-    await Future.delayed(const Duration(milliseconds: 1000));
-    if (mounted) Navigator.pushReplacement(context, MaterialPageRoute(
-        builder: (_) => ReviewScreen(bookingId: widget.bookingId, booking: widget.booking)));
-  }
 
-  /// Cloud Run signature verification. Returns true only on an explicit
-  /// success response. No client-computed amount is sent.
-  Future<bool> _verifyServer(PaymentSuccessResponse r, String uid) async {
-    try {
-      final res = await http.post(Uri.parse(_verifyPayment),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'razorpay_order_id': r.orderId ?? '',
-          'razorpay_payment_id': r.paymentId ?? '',
-          'razorpay_signature': r.signature ?? '',
-          'booking_id': widget.bookingId,
-          'provider_id': widget.booking['providerId'] ?? widget.booking['provider_id'] ?? '',
-          'customer_id': uid,
-        })).timeout(const Duration(seconds: 20));
-      if (res.statusCode < 200 || res.statusCode >= 300) return false;
-      final body = jsonDecode(res.body);
-      return body is Map && (body['success'] == true || body['verified'] == true);
-    } catch (_) {
-      return false;
+    // Review is only possible once the provider has completed the job.
+    final fresh = await ApiService.getBooking(widget.bookingId);
+    final status = (fresh?['status'] ?? widget.booking['status'])?.toString() ?? '';
+    await Future.delayed(const Duration(milliseconds: 1000));
+    if (!mounted) return;
+    if (status == 'completed') {
+      Navigator.pushReplacement(context, MaterialPageRoute(
+          builder: (_) => ReviewScreen(bookingId: widget.bookingId, booking: fresh ?? widget.booking)));
+    } else {
+      Navigator.pop(context, true);
     }
   }
 
   void _onError(PaymentFailureResponse r) {
     HapticFeedback.heavyImpact();
+    if (!mounted) return;
     setState(() => _loading = false);
-    if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text('Payment failed: ${r.message ?? 'Please try again'}'),
       backgroundColor: AppColors.red));
   }
@@ -179,41 +174,79 @@ class _PaymentScreenState extends State<PaymentScreen> {
   Future<void> _startPayment() async {
     HapticFeedback.mediumImpact();
     setState(() => _creatingOrder = true);
+    final order = await ApiService.createPaymentOrder(widget.bookingId);
+    if (!mounted) return;
+    setState(() => _creatingOrder = false);
+    if (order['success'] != true) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('Could not start payment: ${order['error'] ?? 'Please try again'}'),
+        backgroundColor: AppColors.red));
+      return;
+    }
+    final paise = order['amount'] as int? ?? 0;
+    if (paise > 0) setState(() => _serverAmount = paise ~/ 100);
+    final user = FirebaseAuth.instance.currentUser;
+    final options = {
+      'key': order['key_id'],
+      'amount': paise,
+      'currency': order['currency'] ?? 'INR',
+      'name': 'HamaraService',
+      'description': _serviceName,
+      'order_id': order['order_id'],
+      'prefill': {
+        'name': _s(['customer_name', 'customer'], user?.displayName ?? ''),
+        'contact': _s(['customer_phone', 'phone']),
+        'email': user?.email ?? '',
+      },
+      'theme': {'color': '#1B6B7A'},
+    };
     try {
-      final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
-      final user = FirebaseAuth.instance.currentUser;
-      final res = await http.post(Uri.parse('$_createOrder'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'bookingId': widget.bookingId,
-          'amount': _totalAmount,
-          'service': widget.booking['service'] ?? 'Home Service',
-          'customerId': uid,
-          'providerId': widget.booking['providerId'] ?? '',
-        }));
-      final order = jsonDecode(res.body);
-      if (order['order_id'] == null) throw Exception(order['error'] ?? 'Failed to create order');
-      setState(() => _creatingOrder = false);
-      final options = {
-        'key': order['key_id'],
-        'amount': order['amount'],
-        'currency': 'INR',
-        'name': 'HamaraService',
-        'description': widget.booking['service'] ?? 'Home Service',
-        'order_id': order['order_id'],
-        'prefill': {
-          'name': widget.booking['customer'] ?? '',
-          'contact': widget.booking['phone'] ?? '',
-          'email': user?.email ?? '',
-        },
-        'theme': {'color': '#1B6B7A'},
-      };
       _razorpay.open(options);
     } catch (e) {
-      setState(() => _creatingOrder = false);
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('Could not start payment: $e'), backgroundColor: AppColors.red));
+        content: Text('Could not open payment: $e'), backgroundColor: AppColors.red));
     }
+  }
+
+  Future<void> _payCash() async {
+    HapticFeedback.mediumImpact();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text('Pay in cash?', style: TextStyle(fontWeight: FontWeight.w800)),
+        content: Text('Hand Rs.$_totalAmount in cash to '
+            '${_providerName.isNotEmpty ? _providerName : 'your provider'}. '
+            'The payment is marked complete once they confirm receiving it.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Back', style: TextStyle(color: AppColors.muted))),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.teal),
+            child: const Text('I paid in cash', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700))),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    setState(() => _cashLoading = true);
+    final res = await ApiService.markPaidCash(widget.bookingId);
+    if (!mounted) return;
+    setState(() => _cashLoading = false);
+    if (res['success'] != true) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(res['error']?.toString() ?? 'Could not record cash payment'),
+        backgroundColor: AppColors.red));
+      return;
+    }
+    final ps = (res['data'] is Map ? (res['data'] as Map)['payment_status'] : null)?.toString() ?? 'cash_pending';
+    if (ps == 'paid') PaymentScreen._paidIds.add(widget.bookingId);
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(ps == 'paid'
+          ? 'Payment confirmed. Thank you!'
+          : 'Cash payment recorded — awaiting provider confirmation.'),
+      backgroundColor: AppColors.green));
+    Navigator.pop(context, true);
   }
 
   @override
@@ -225,12 +258,12 @@ class _PaymentScreenState extends State<PaymentScreen> {
           SizedBox(height: 16),
           Text('Payment Confirmed!', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: AppColors.ink)),
           SizedBox(height: 8),
-          Text('Redirecting to review...', style: TextStyle(color: AppColors.muted)),
+          Text('Thank you!', style: TextStyle(color: AppColors.muted)),
         ])));
     }
     return Scaffold(
       backgroundColor: AppColors.bg,
-      appBar: AppBar(title: const Text('Payment'), backgroundColor: AppColors.teal, automaticallyImplyLeading: false),
+      appBar: AppBar(title: const Text('Payment'), backgroundColor: AppColors.teal, foregroundColor: Colors.white),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
         child: Column(children: [
@@ -242,31 +275,17 @@ class _PaymentScreenState extends State<PaymentScreen> {
               Row(children: [
                 Container(width: 52, height: 52,
                   decoration: BoxDecoration(color: AppColors.tealSoft, borderRadius: BorderRadius.circular(12)),
-                  child: Center(child: Text(widget.booking['icon'] ?? '🔧', style: const TextStyle(fontSize: 28)))),
+                  child: Center(child: Text(_serviceIcon, style: const TextStyle(fontSize: 28)))),
                 const SizedBox(width: 12),
                 Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(widget.booking['service'] ?? 'Service',
+                  Text(_serviceName,
                     style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.ink)),
-                  Text('Provider: ${widget.booking['providerName'] ?? ''}',
+                  Text('Provider: $_providerName',
                     style: const TextStyle(fontSize: 12, color: AppColors.muted)),
                 ])),
               ]),
               const Divider(height: 24, color: AppColors.line),
               _billRow('Service Amount', 'Rs.$_baseAmount'),
-              if (_pendingPenalty > 0) ...[
-                const SizedBox(height: 8),
-                Container(padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(color: AppColors.red.withOpacity(0.06),
-                    borderRadius: BorderRadius.circular(8), border: Border.all(color: AppColors.red.withOpacity(0.2))),
-                  child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                    const Row(children: [
-                      Icon(Icons.warning_amber_rounded, color: AppColors.red, size: 14),
-                      SizedBox(width: 6),
-                      Text('Cancellation Penalty', style: TextStyle(fontSize: 13, color: AppColors.red, fontWeight: FontWeight.w600)),
-                    ]),
-                    Text('+ Rs.$_pendingPenalty', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: AppColors.red)),
-                  ])),
-              ],
               const Divider(height: 20, color: AppColors.line),
               Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
                 const Text('Total Amount', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.ink)),
@@ -276,7 +295,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
 
           const SizedBox(height: 20),
 
-          // Online payment only — NO cash option
+          // Online payment (UPI / cards) — or cash below
           Container(padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(color: AppColors.tealSoft, borderRadius: BorderRadius.circular(14),
               border: Border.all(color: AppColors.teal)),
@@ -296,7 +315,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
 
           SizedBox(width: double.infinity,
             child: ElevatedButton(
-              onPressed: (_loading || _creatingOrder) ? null : _startPayment,
+              onPressed: (_loading || _creatingOrder || _cashLoading) ? null : _startPayment,
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFFE8251A),
                 minimumSize: const Size(double.infinity, 56),
@@ -311,6 +330,19 @@ class _PaymentScreenState extends State<PaymentScreen> {
                       style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: Colors.white)))),
 
           const SizedBox(height: 12),
+          SizedBox(width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: (_loading || _creatingOrder || _cashLoading) ? null : _payCash,
+              icon: _cashLoading
+                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.teal))
+                  : const Icon(Icons.payments_outlined, color: AppColors.teal),
+              label: Text('Pay Rs.$_totalAmount in Cash',
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.teal)),
+              style: OutlinedButton.styleFrom(
+                side: const BorderSide(color: AppColors.teal),
+                minimumSize: const Size(double.infinity, 50),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))))),
+          const SizedBox(height: 12),
           const Text('Secured by Razorpay · 256-bit encryption',
             textAlign: TextAlign.center, style: TextStyle(fontSize: 11, color: AppColors.muted)),
           const SizedBox(height: 32),
@@ -319,39 +351,6 @@ class _PaymentScreenState extends State<PaymentScreen> {
     );
   }
 
-
-// ── Commission rates — MUST match provider earnings_screen.dart ─
-double _getCommissionRate(String service) {
-  final s = service.toLowerCase();
-  // Exact-name check first (most reliable)
-  const Map<String, double> rates = {
-    'house maid': 10, 'deep cleaning': 12, 'bathroom cleaning': 10,
-    'kitchen cleaning': 12, 'sofa / carpet cleaning': 12, 'laundry / ironing': 10,
-    'pest control': 10, 'gardener': 10, 'ac cleaning & repair': 15,
-    'home appliance repair': 18, 'water purifier service': 15,
-    'plumber': 20, 'electrician': 20, 'carpenter': 12, 'painter': 12,
-    'cctv installation': 15, 'solar panel cleaning': 12,
-    'car / bike wash': 10, 'car & bike mechanic': 15,
-    'cook / cooking person': 10, "men's haircut at home": 12,
-    "women's haircut & beauty": 12, 'full body massage': 15,
-    'gym / fitness trainer': 15, 'doctor visit at home': 15,
-    'nurse visit at home': 15, 'lab test collection': 15,
-    'babysitter / nanny': 10, 'elderly care': 10,
-    'driver': 15, 'security guard & bouncers': 10,
-  };
-  // Check exact name
-  if (rates.containsKey(s)) return rates[s]!;
-  // Fallback keyword check
-  if (s.contains('electrician') || s.contains('plumber')) return 20;
-  if (s.contains('appliance') || s.contains('repair')) return 18;
-  if (s.contains('ac') || s.contains('air condition')) return 15;
-  if (s.contains('deep clean') || s.contains('kitchen')) return 12;
-  if (s.contains('carpenter') || s.contains('painter')) return 12;
-  if (s.contains('doctor') || s.contains('nurse') || s.contains('lab')) return 15;
-  if (s.contains('fitness') || s.contains('massage') || s.contains('beauty')) return 15;
-  if (s.contains('mechanic') || s.contains('driver') || s.contains('cctv')) return 15;
-  return 10; // default
-}
 
   Widget _billRow(String label, String value) {
     return Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [

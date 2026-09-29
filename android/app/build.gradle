@@ -15,11 +15,18 @@ apply plugin: 'kotlin-android'
 apply from: "$flutterRoot/packages/flutter_tools/gradle/flutter.gradle"
 apply plugin: 'com.google.gms.google-services'
 
+// Release signing: android/key.properties (written by CI from secrets) with
+// storeFile resolved relative to this module (android/app), e.g.
+// storeFile=upload-keystore.jks -> android/app/upload-keystore.jks.
+// Without it (or if the keystore is missing) release builds use the debug key.
 def keystorePropertiesFile = rootProject.file("key.properties")
 def keystoreProperties = new Properties()
 if (keystorePropertiesFile.exists()) {
-    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+    keystorePropertiesFile.withInputStream { keystoreProperties.load(it) }
 }
+def hasReleaseKeystore = keystorePropertiesFile.exists() &&
+        keystoreProperties['storeFile'] &&
+        file(keystoreProperties['storeFile']).exists()
 
 android {
     namespace "com.hamaraservice.customer"
@@ -41,7 +48,7 @@ android {
     }
     signingConfigs {
         release {
-            if (keystorePropertiesFile.exists()) {
+            if (hasReleaseKeystore) {
                 keyAlias keystoreProperties['keyAlias']
                 keyPassword keystoreProperties['keyPassword']
                 storeFile file(keystoreProperties['storeFile'])
@@ -51,7 +58,7 @@ android {
     }
     buildTypes {
         release {
-            signingConfig keystorePropertiesFile.exists() ? signingConfigs.release : signingConfigs.debug
+            signingConfig hasReleaseKeystore ? signingConfigs.release : signingConfigs.debug
             minifyEnabled false
             shrinkResources false
         }

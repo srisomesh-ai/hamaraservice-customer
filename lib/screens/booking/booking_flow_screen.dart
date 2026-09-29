@@ -31,7 +31,6 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
   final _nameCtrl = TextEditingController();
   final _phoneCtrl = TextEditingController();
   bool _loading = false;
-  bool _detectingLocation = false; // Always false - no re-fetch
   double? _customerLat;
   double? _customerLng;
   String _city = '';

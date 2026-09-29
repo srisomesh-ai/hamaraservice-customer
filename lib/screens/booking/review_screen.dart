@@ -1,6 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_database/firebase_database.dart';
 import '../../services/api_service.dart';
 import '../../utils/theme.dart';
 import '../home_screen.dart';
@@ -37,7 +35,6 @@ class _ReviewScreenState extends State<ReviewScreen> {
     }
     setState(() => _submitting = true);
     try {
-      final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
       // MySQL rows use provider_id; older RTDB maps used providerId.
       final provId = (widget.booking['provider_id'] ??
               widget.booking['providerId'] ?? '').toString();

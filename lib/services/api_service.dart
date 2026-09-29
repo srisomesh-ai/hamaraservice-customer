@@ -287,6 +287,18 @@ class ApiService {
     return null;
   }
 
+  /// Customer (re)generates the start OTP for a confirmed booking.
+  /// Returns the OTP, or null on failure.
+  static Future<String?> generateStartOtp(String bookingId) async {
+    final res = await _post('bookings.php', {'booking_id': bookingId},
+        params: {'action': 'generate_start_otp'});
+    if (res['success'] == true && res['data'] is Map) {
+      final otp = (res['data'] as Map)['start_otp']?.toString() ?? '';
+      return otp.isNotEmpty ? otp : null;
+    }
+    return null;
+  }
+
   /// Customer searches another provider
   static Future<bool> searchAnother(String bookingId) async {
     final res = await _post('bookings.php',
@@ -295,8 +307,7 @@ class ApiService {
     return res['success'] == true;
   }
 
-  /// Cancel booking. [reason] is sent for the server to store if it
-  /// supports it (currently ignored by bookings.php `cancel`).
+  /// Cancel booking. [reason] is stored server-side as cancel_reason.
   static Future<bool> cancelBooking(String bookingId, {String reason = ''}) async {
     final res = await _post('bookings.php', {
       'booking_id': bookingId,
@@ -321,18 +332,37 @@ class ApiService {
     return res['success'] == true;
   }
 
-  /// Complete booking after successful payment
-  static Future<bool> completeBooking({
-    required String bookingId,
-    String razorpayPaymentId = '',
-    String razorpayOrderId = '',
-  }) async {
-    final res = await _post('bookings.php', {
-      'booking_id':          bookingId,
-      'razorpay_payment_id': razorpayPaymentId,
-      'razorpay_order_id':   razorpayOrderId,
-    }, params: {'action': 'complete'});
-    return res['success'] == true;
+  /// Create a Razorpay order for a booking (create-order.php). The amount
+  /// is derived server-side from the booking. Returns
+  /// {success:true, order_id, amount (paise), key_id, currency} or
+  /// {success:false, error}.
+  static Future<Map<String,dynamic>> createPaymentOrder(String bookingId) async {
+    final res = await _post('create-order.php', {'bookingId': bookingId});
+    // create-order.php answers with a flat object; tolerate a {data:{...}} wrapper too.
+    final data = res['data'] is Map
+        ? Map<String,dynamic>.from(res['data'] as Map)
+        : res;
+    final orderId = data['order_id']?.toString() ?? '';
+    if (res['success'] != false && orderId.isNotEmpty) {
+      return {
+        'success':  true,
+        'order_id': orderId,
+        'amount':   num.tryParse(data['amount']?.toString() ?? '')?.toInt() ?? 0,
+        'key_id':   data['key_id']?.toString() ?? '',
+        'currency': data['currency']?.toString() ?? 'INR',
+      };
+    }
+    return {
+      'success': false,
+      'error': res['error']?.toString() ?? 'Could not create payment order',
+    };
+  }
+
+  /// Customer says they paid in cash → payment_status 'cash_pending' until
+  /// the provider confirms receipt. Returns {success, data:{payment_status}}.
+  static Future<Map<String,dynamic>> markPaidCash(String bookingId) {
+    return _post('bookings.php', {'booking_id': bookingId},
+        params: {'action': 'mark_paid'});
   }
 
   /// Server-side Razorpay signature verification (bookings.php

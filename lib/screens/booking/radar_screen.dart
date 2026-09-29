@@ -1,14 +1,10 @@
-import 'dart:convert';
 import '../../services/api_service.dart';
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'package:flutter/services.dart';
-import 'package:firebase_database/firebase_database.dart';
 import '../../utils/theme.dart';
 import 'booking_confirmed_screen.dart';
-import 'booking_pending_screen.dart';
 
 class RadarScreen extends StatefulWidget {
   final String bookingId;
@@ -46,6 +42,7 @@ class _RadarScreenState extends State<RadarScreen>
   Timer? _rangeTimer;
   final List<Map<String, dynamic>> _logs = [];
   int _providersFound = 0;
+  String _lastStatus = '';
 
   late AnimationController _sweepCtrl;
   late AnimationController _pulseCtrl;
@@ -104,19 +101,6 @@ class _RadarScreenState extends State<RadarScreen>
     }
   }
 
-  double _haversine(
-      double lat1, double lng1, double lat2, double lng2) {
-    const r = 6371.0;
-    final dLat = (lat2 - lat1) * pi / 180;
-    final dLng = (lng2 - lng1) * pi / 180;
-    final a = sin(dLat / 2) * sin(dLat / 2) +
-        cos(lat1 * pi / 180) *
-            cos(lat2 * pi / 180) *
-            sin(dLng / 2) *
-            sin(dLng / 2);
-    return r * 2 * atan2(sqrt(a), sqrt(1 - a));
-  }
-
   void _addLog(String emoji, String message, {String type = ''}) {
     if (!mounted) return;
     setState(() {
@@ -132,7 +116,7 @@ class _RadarScreenState extends State<RadarScreen>
   Future<void> _startRange(int idx) async {
     if (!_radarActive || !mounted) return;
     if (idx >= _ranges.length) {
-      _bookingPending();
+      _giveUp();
       return;
     }
     _pollTimer?.cancel();
@@ -157,30 +141,93 @@ class _RadarScreenState extends State<RadarScreen>
         t.cancel();
         return;
       }
-      try {
-        final bkData = await ApiService.getBooking(widget.bookingId);
-        if (bkData == null) return;
-        final bkStatus = bkData['status']?.toString() ?? '';
-        if ((bkStatus == "price_quoted") && bkData["acceptedBy"] != null && !_navigating) {
-          t.cancel(); _rangeTimer?.cancel();
-          final q = (bkData["quotedPrice"] as num?)?.toInt() ?? 0;
-          final pn = (bkData["acceptedBy"] is Map) ? (bkData["acceptedBy"] as Map)["name"]?.toString() ?? "Provider" : "Provider";
-          if (mounted) _showPriceQuote(q, pn, bkData);
-        } else if (bkStatus == "negotiation_final" && bkData["finalPrice"] != null && !_navigating) {
-          t.cancel(); _rangeTimer?.cancel();
-          final fp = (bkData["finalPrice"] as num?)?.toInt() ?? 0;
-          final pn = (bkData["acceptedBy"] is Map) ? (bkData["acceptedBy"] as Map)["name"]?.toString() ?? "Provider" : "Provider";
-          if (mounted) _showFinalOffer(fp, pn);
-        } else if ((bkStatus == "confirmed" || bkStatus == "accepted") && bkData["acceptedBy"] != null && !_navigating) {
-          t.cancel(); _rangeTimer?.cancel(); _providerAccepted();
-        }
-      } catch (e) {}
+      await _pollOnce(t);
     });
     _rangeTimer = Timer(const Duration(seconds: 20), () {
       if (!_radarActive || !mounted || _navigating) return;
       _pollTimer?.cancel();
       _startRange(idx + 1);
     });
+  }
+
+  static int _num(dynamic v) => num.tryParse(v?.toString() ?? '')?.toInt() ?? 0;
+
+  /// One status poll of the booking (MySQL snake_case fields).
+  Future<void> _pollOnce(Timer? t) async {
+    try {
+      final bkData = await ApiService.getBooking(widget.bookingId);
+      if (bkData == null || !mounted || _navigating) return;
+      final bkStatus = bkData['status']?.toString() ?? '';
+      _lastStatus = bkStatus;
+      final hasProvider = (bkData['provider_id']?.toString() ?? '').isNotEmpty;
+      final pn = (bkData['provider_name']?.toString() ?? '').isNotEmpty
+          ? bkData['provider_name'].toString() : 'Provider';
+      if (bkStatus == 'price_quoted' && hasProvider) {
+        t?.cancel(); _pollTimer?.cancel(); _rangeTimer?.cancel();
+        _showPriceQuote(_num(bkData['quoted_price']), pn, bkData);
+      } else if (bkStatus == 'negotiation_final' && _num(bkData['final_price']) > 0) {
+        t?.cancel(); _pollTimer?.cancel(); _rangeTimer?.cancel();
+        _showFinalOffer(_num(bkData['final_price']), pn);
+      } else if ((bkStatus == 'confirmed' || bkStatus == 'active') && hasProvider) {
+        t?.cancel(); _pollTimer?.cancel(); _rangeTimer?.cancel();
+        _providerAccepted();
+      } else if (bkStatus == 'cancelled' || bkStatus == 'expired') {
+        t?.cancel(); _pollTimer?.cancel(); _rangeTimer?.cancel();
+        final reason = bkData['cancel_reason']?.toString() ?? '';
+        final expired = bkStatus == 'expired' || reason == 'expired';
+        _endSearch(expired
+            ? 'Your search expired before a provider accepted. Please book again.'
+            : (bkData['cancelled_by']?.toString() == 'admin'
+                ? 'This booking was cancelled by HamaraService support.'
+                : 'This booking was cancelled.'));
+      }
+    } catch (_) {}
+  }
+
+  /// All radius steps exhausted. If the booking is still unclaimed, cancel
+  /// it (reason 'no_provider'); if a provider is mid-negotiation keep polling.
+  Future<void> _giveUp() async {
+    if (_navigating || !mounted) return;
+    _pollTimer?.cancel();
+    _rangeTimer?.cancel();
+    await _pollOnce(null);
+    if (_navigating || !mounted) return;
+    if (_lastStatus.isNotEmpty && _lastStatus != 'searching') {
+      // e.g. 'negotiating' — wait for the provider's response.
+      _pollTimer = Timer.periodic(const Duration(seconds: 3), (t) async {
+        if (!mounted || _navigating) { t.cancel(); return; }
+        await _pollOnce(t);
+      });
+      return;
+    }
+    _addLog('😔', 'No provider accepted within 20 km', type: 'warn');
+    await ApiService.cancelBooking(widget.bookingId, reason: 'no_provider');
+    _endSearch('No providers are available near you right now. '
+        'Your booking was cancelled — please try again in a little while.');
+  }
+
+  /// Stop the radar and tell the customer why, then leave the screen.
+  Future<void> _endSearch(String message) async {
+    if (_navigating || !mounted) return;
+    _navigating = true;
+    _pollTimer?.cancel();
+    _rangeTimer?.cancel();
+    setState(() => _radarActive = false);
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text('Search ended', style: TextStyle(fontWeight: FontWeight.w800)),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('OK', style: TextStyle(color: AppColors.teal, fontWeight: FontWeight.w700))),
+        ],
+      ),
+    );
+    if (mounted) Navigator.pop(context);
   }
 
   Future<void> _countProviders(int km) async {
@@ -198,48 +245,6 @@ class _RadarScreenState extends State<RadarScreen>
       if (mounted) setState(() => _providersFound = nearby.length);
     } catch (_) {}
   }
-  Future<void> _countProviders_unused(int km) async {
-    try {
-      final all = <String, dynamic>{};
-      final reqSvc = (widget.service['name'] as String).toLowerCase();
-      int count = 0;
-      for (final v in all.values) {
-        final p = Map<String, dynamic>.from(v as Map);
-        if (p['available'] != true) continue;
-        if (p['status'] != 'approved') continue;
-        final pLat = (p['lat'] as num?)?.toDouble();
-        final pLng = (p['lng'] as num?)?.toDouble();
-        if (pLat == null || pLng == null) continue;
-        if (widget.lat != null && widget.lng != null) {
-          if (_haversine(
-                  widget.lat!, widget.lng!, pLat, pLng) >
-              km) continue;
-        }
-        final services = p['services'];
-        if (services == null) continue;
-        final svcList = services is List
-            ? services
-            : (services as Map).values.toList();
-        final hasService = svcList.any((s) {
-          if (s is Map) {
-            return (s['name'] ?? '')
-                    .toString()
-                    .toLowerCase() ==
-                reqSvc;
-          }
-          return false;
-        });
-        if (hasService) count++;
-      }
-      if (mounted) setState(() => _providersFound = count);
-      if (count > 0) {
-        _addLog('✅', '$count provider${count == 1 ? '' : 's'} found within $km km', type: 'success');
-      } else {
-        _addLog('📡', 'No providers online within $km km', type: 'info');
-      }
-    } catch (e) {}
-  }
-
   // Show quoted price to customer — Accept / Negotiate / Search Another
   void _showPriceQuote(int quotedPrice, String providerName, Map<String,dynamic> bookingData) {
     if (_navigating || !mounted) return;
@@ -350,7 +355,12 @@ class _RadarScreenState extends State<RadarScreen>
   Future<void> _confirmPrice(int price, Map<String,dynamic> bookingData) async {
     try {
       // MySQL API confirms price + sends FCM to provider + generates OTP
-      await ApiService.confirmPrice(widget.bookingId, price);
+      final res = await ApiService.confirmPrice(widget.bookingId, price);
+      if (res == null) {
+        if (mounted) toast('Could not confirm the price. Please try again.');
+        await _pollOnce(null);
+        return;
+      }
       _providerAccepted();
     } catch (e) {
       if (mounted) toast('Error: $e');
@@ -450,35 +460,13 @@ class _RadarScreenState extends State<RadarScreen>
                 price: widget.price)));
   }
 
-  void _bookingPending() async {
-    if (_navigating || !mounted) return;
-    _navigating = true;
-        setState(() => _radarActive = false);
-    _pollTimer?.cancel();
-    _rangeTimer?.cancel();
-    // Booking stays active in MySQL — no pending status needed
-    _addLog('⏳', 'Booking active — providers will see it', type: 'warn');
-    await Future.delayed(const Duration(seconds: 1));
-    if (!mounted) return;
-    Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-            builder: (_) => BookingPendingScreen(
-                bookingId: widget.bookingId,
-                service: widget.service,
-                date: widget.date,
-                timeSlot: widget.timeSlot,
-                address: widget.address,
-                price: widget.price)));
-  }
-
   void _cancelSearch() async {
         setState(() => _radarActive = false);
     _pollTimer?.cancel();
     _rangeTimer?.cancel();
     try {
       // Cancel booking in MySQL
-      await ApiService.cancelBooking(widget.bookingId);
+      await ApiService.cancelBooking(widget.bookingId, reason: 'customer_cancelled_search');
       await Future.delayed(const Duration(milliseconds: 500));
     } catch (e) {}
     if (mounted) Navigator.pop(context);

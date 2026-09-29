@@ -1,11 +1,10 @@
 // ╔══════════════════════════════════════════════════════════════════╗
 // ║  HamaraService — MASTER CATALOG                                  ║
 // ║  Single source of truth for ALL services, subcategories & prices ║
-// ║  Matches hs-prices.html exactly. DO NOT edit prices here —       ║
-// ║  admin updates Firebase; apps read from Firebase.                ║
+// ║  Matches hs-prices.html. Live prices come from the server        ║
+// ║  (services.php?action=prices); these are display defaults.       ║
 // ╚══════════════════════════════════════════════════════════════════╝
 
-import 'package:firebase_database/firebase_database.dart';
 
 // ── Option types ──────────────────────────────────────────────────────
 // 'bhk'   = selectable size/type chip with price (single-select per group)
@@ -515,60 +514,4 @@ class HSCatalog {
   }
 
   static int basePrice(String id) => getById(id)?.basePrice ?? 0;
-
-  // Seed all services to Firebase on first admin login
-  static Future<void> seedToFirebase() async {
-    try {
-      final snap = await FirebaseDatabase.instance
-          .ref('hs_service_prices/SVC001/basePrice')
-          .get();
-      if (snap.exists) return; // Already seeded
-
-      final Map<String, dynamic> updates = {};
-      for (final svc in services) {
-        updates['hs_service_prices/${svc.id}'] = _toFirebase(svc);
-      }
-      await FirebaseDatabase.instance.ref().update(updates);
-    } catch (_) {}
-  }
-
-  static Map<String, dynamic> _toFirebase(HSService svc) {
-    return {
-      'id': svc.id,
-      'name': svc.name,
-      'icon': svc.icon,
-      'cat': svc.cat,
-      'basePrice': svc.basePrice,
-      'status': 'active',
-      'groups': svc.groups.map((g) => {
-        'key': g.key,
-        'title': g.title,
-        'style': g.style,
-        if (g.showOn != null) 'showOn': g.showOn,
-        if (g.info != null) 'info': g.info,
-        'items': g.items.map((o) => {
-          'key': o.key,
-          'name': o.name,
-          'ico': o.ico,
-          'p': o.price,
-        }).toList(),
-      }).toList(),
-    };
-  }
-
-  // Load live prices from Firebase (overrides base prices if admin updated)
-  static Future<Map<String, int>> loadLivePrices() async {
-    final Map<String, int> prices = {};
-    try {
-      final snap = await FirebaseDatabase.instance.ref('hs_service_prices').get();
-      if (!snap.exists) return prices;
-      final data = Map<String, dynamic>.from(snap.value as Map);
-      for (final entry in data.entries) {
-        final svc = Map<String, dynamic>.from(entry.value as Map);
-        final bp = svc['basePrice'];
-        if (bp is int) prices[entry.key] = bp;
-      }
-    } catch (_) {}
-    return prices;
-  }
 }

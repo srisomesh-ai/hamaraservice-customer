@@ -3,12 +3,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:vibration/vibration.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_database/firebase_database.dart';
 import '../../services/api_service.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../utils/theme.dart';
+import '../../utils/booking_utils.dart';
 import '../booking/payment_screen.dart';
 
+/// "Active" bookings tab. Lists the customer's bookings (customers.php
+/// `bookings`) and polls bookings.php `get` for each live one to show the
+/// start / completion OTP, provider location and the payment action.
 class MyBookingsScreen extends StatefulWidget {
   const MyBookingsScreen({super.key});
   @override
@@ -17,20 +20,32 @@ class MyBookingsScreen extends StatefulWidget {
 
 class _MyBookingsScreenState extends State<MyBookingsScreen> {
   List<Map<String, dynamic>> _bookings = [];
+  // Full rows from bookings.php `get` (OTPs, provider location, …) by id.
+  final Map<String, Map<String, dynamic>> _details = {};
   bool _loading = true;
   StreamSubscription? _listener;
+  bool _polling = false;
+
   bool _showOtpPopup = false;
   String _otpCode = '';
   String _otpService = '';
-  String _otpBookingId = '';
-  final Map<String, StreamSubscription> _otpWatchers = {};
-  final Map<String, StreamSubscription> _acceptWatchers = {};
-  
+  // "<bookingId>:<otp>" already popped up, so a dismissed popup stays closed.
+  final Set<String> _otpShown = {};
+
+  // Last seen status per booking, to detect "provider accepted".
+  final Map<String, String> _lastStatus = {};
+  final Set<String> _busy = {};
+
   // In-app accepted alert
   bool _showAcceptedAlert = false;
   String _acceptedProviderName = '';
   String _acceptedProviderPhone = '';
   String _acceptedService = '';
+
+  static const _liveStatuses = {
+    'searching', 'price_quoted', 'negotiating', 'negotiation_final',
+    'confirmed', 'active',
+  };
 
   @override
   void initState() {
@@ -41,14 +56,15 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
   @override
   void dispose() {
     _listener?.cancel();
-    for (final s in _otpWatchers.values) s.cancel();
-    for (final s in _acceptWatchers.values) s.cancel();
     super.dispose();
   }
 
   void _listen() {
     final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) return;
+    if (uid == null) {
+      _loading = false;
+      return;
+    }
     _loadBookings(uid);
     // Never stack pollers: cancel any previous periodic stream first.
     _listener?.cancel();
@@ -62,75 +78,65 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
     await _loadBookings(uid);
   }
 
-  /// Stop per-booking watchers for bookings that are gone or finished.
-  void _pruneWatchers() {
-    final live = <String>{};
-    for (final b in _bookings) {
-      final id = b['id']?.toString() ?? '';
-      final st = b['status']?.toString() ?? '';
-      if (id.isNotEmpty && st != 'completed' && st != 'cancelled') live.add(id);
-    }
-    for (final m in [_otpWatchers, _acceptWatchers]) {
-      final stale = m.keys.where((k) => !live.contains(k)).toList();
-      for (final k in stale) {
-        m[k]?.cancel();
-        m.remove(k);
-      }
-    }
+  /// Bookings that belong on the Active tab: in progress, or completed but
+  /// not yet paid (so the customer can still pay).
+  static bool _isActiveTab(Map<String, dynamic> b) {
+    final st = b['status']?.toString() ?? '';
+    if (_liveStatuses.contains(st)) return true;
+    return st == 'completed' && (b['payment_status']?.toString() ?? '') != 'paid';
   }
 
   Future<void> _loadBookings(String uid) async {
+    if (_polling) return;
+    _polling = true;
     try {
-      final list = await ApiService.getCustomerBookings(uid);
-      if (mounted) setState(() { _bookings = list; _loading = false; });
+      final list = (await ApiService.getCustomerBookings(uid))
+          .where(_isActiveTab).toList();
+      // Refresh details for each active booking (a handful at most).
+      final ids = list.map((b) => b['id']?.toString() ?? '').where((id) => id.isNotEmpty).take(8).toList();
+      final fetched = await Future.wait(ids.map((id) async => MapEntry(id, await ApiService.getBooking(id))));
+      if (!mounted) return;
+      setState(() {
+        _bookings = list;
+        _details.removeWhere((k, _) => !ids.contains(k));
+        for (final e in fetched) {
+          if (e.value != null) _details[e.key] = e.value!;
+        }
+        _loading = false;
+      });
+      for (final b in list) {
+        _checkTransitions(_merged(b));
+      }
     } catch (_) {
       if (mounted) setState(() => _loading = false);
+    } finally {
+      _polling = false;
     }
-    if (!mounted) return;
-    _pruneWatchers();
-    // Watch active bookings for status changes
-    for (final b in _bookings) {
-      final id = b['id']?.toString() ?? '';
-      final status = b['status']?.toString() ?? '';
-      if (['active','price_quoted','negotiating','negotiation_final','confirmed'].contains(status)) {
-        _watchAcceptance(id, b);
-      }
-    }
-
-      for (final b in _bookings) {
-        final id = b['id'] as String? ?? '';
-        if (id.isEmpty) continue;
-        if (['active','otp_sent','accepted','payment_pending'].contains(b['status'])) {
-          _watchOTP(id, b['service'] ?? '');
-        }
-        // Watch acceptance for searching/pending
-        // payment_pending is already handled by Pay Now button
-        // Watch for acceptance
-        if (b['status'] == 'searching' || b['status'] == 'pending') {
-          _watchAcceptance(id, b);
-        }
-      }
   }
 
-  void _watchAcceptance(String bookingId, Map<String, dynamic> booking) {
-    if (_acceptWatchers.containsKey(bookingId)) return;
-    _acceptWatchers[bookingId] = Stream.periodic(const Duration(seconds: 3))
-        .asyncMap((_) => ApiService.getBooking(bookingId))
-        .listen((data) {
-      if (!mounted || data == null) return;
-      final status = data['status']?.toString() ?? '';
-      if (status == 'price_quoted' || status == 'accepted') {
-        _acceptWatchers[bookingId]?.cancel();
-        _acceptWatchers.remove(bookingId);
-        // Get provider info and show alert
-        ApiService.getBooking(bookingId).then((data) {
-          if (data == null || !mounted) return;
-          final providerName = data['provider_name']?.toString() ?? 'Your provider';
-          final providerPhone = '';
-          _showProviderAcceptedAlert(providerName, providerPhone, booking['service'] ?? '');
-        });
-      }
-    });
+  Map<String, dynamic> _merged(Map<String, dynamic> b) {
+    final id = b['id']?.toString() ?? '';
+    return {...b, ...?_details[id]};
+  }
+
+  void _checkTransitions(Map<String, dynamic> d) {
+    final id = d['id']?.toString() ?? '';
+    final status = d['status']?.toString() ?? '';
+    final prev = _lastStatus[id];
+    _lastStatus[id] = status;
+    final service = BookingUtils.str(d, ['svc_name'], 'your service');
+
+    if (prev == 'searching' && status == 'price_quoted') {
+      _showProviderAcceptedAlert(
+          BookingUtils.str(d, ['provider_name'], 'Your provider'),
+          BookingUtils.str(d, ['provider_phone']), service);
+    }
+
+    final cotp = BookingUtils.completionOtp(d);
+    if (cotp.isNotEmpty && _otpShown.add('$id:$cotp')) {
+      HapticFeedback.heavyImpact();
+      setState(() { _showOtpPopup = true; _otpCode = cotp; _otpService = service; });
+    }
   }
 
   void _showProviderAcceptedAlert(String name, String phone, String service) async {
@@ -151,33 +157,49 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
     }
   }
 
-  void _watchOTP(String bookingId, String service) {
-    if (_otpWatchers.containsKey(bookingId)) return;
-    _otpWatchers[bookingId] = Stream.periodic(const Duration(seconds: 4))
-        .asyncMap((_) => ApiService.getBooking(bookingId))
-        .listen((data) {
-      if (data == null || !mounted) return;
-      final status = data['status']?.toString() ?? '';
-      final otp = data['otp']?.toString() ?? '';
-      if (status == 'waiting' && otp.isNotEmpty) {
-        setState(() { _showOtpPopup = true; _otpCode = otp; _otpBookingId = bookingId; _otpService = service; });
-      } else if (status == 'verified') {
-        if (_showOtpPopup) setState(() => _showOtpPopup = false);
-        final booking = _bookings.firstWhere((b) => b['id'] == bookingId, orElse: () => {});
-        // Open payment only once per booking (this watcher ticks every 4s and
-        // HomeScreen polls too) — PaymentScreen.reserve() de-duplicates.
-        if (booking.isNotEmpty && mounted && PaymentScreen.reserve(bookingId)) {
-          Navigator.push(context, MaterialPageRoute(
-              builder: (_) => PaymentScreen(bookingId: bookingId, booking: booking)));
-        }
-      }
-    });
+  void _openPayment(Map<String, dynamic> d) {
+    final id = d['id']?.toString() ?? '';
+    if (id.isEmpty || !PaymentScreen.reserve(id)) return;
+    HapticFeedback.mediumImpact();
+    Navigator.push(context, MaterialPageRoute(
+        builder: (_) => PaymentScreen(bookingId: id, booking: d)))
+      .then((_) => _refresh());
+  }
+
+  Future<void> _acceptQuote(Map<String, dynamic> d, int price) async {
+    final id = d['id']?.toString() ?? '';
+    if (id.isEmpty || !_busy.add(id)) return;
+    setState(() {});
+    final res = await ApiService.confirmPrice(id, price);
+    _busy.remove(id);
+    if (!mounted) return;
+    if (res == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Could not confirm the price. Please try again.'),
+        backgroundColor: AppColors.red));
+    }
+    await _refresh();
+  }
+
+  Future<void> _generateStartOtp(Map<String, dynamic> d) async {
+    final id = d['id']?.toString() ?? '';
+    if (id.isEmpty || !_busy.add(id)) return;
+    setState(() {});
+    final otp = await ApiService.generateStartOtp(id);
+    _busy.remove(id);
+    if (!mounted) return;
+    if (otp == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Could not get the start OTP. Please try again.'),
+        backgroundColor: AppColors.red));
+    }
+    await _refresh();
   }
 
   Future<void> _cancelBooking(Map<String, dynamic> b) async {
     HapticFeedback.mediumImpact();
-    final status = b['status'] as String? ?? '';
-    final id = b['id'] as String? ?? '';
+    final status = b['status']?.toString() ?? '';
+    final id = b['id']?.toString() ?? '';
     if (id.isEmpty) return;
     String? selectedReason;
     final reasonCtrl = TextEditingController();
@@ -257,7 +279,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
       return;
     }
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(['accepted','active'].contains(status) ? 'Cancelled. Rs.20 penalty applied.' : 'Booking cancelled.'),
+      content: const Text('Booking cancelled.'),
       backgroundColor: AppColors.red, duration: const Duration(seconds: 3)));
     _refresh();
   }
@@ -274,31 +296,51 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
   Widget _buildList() {
     if (_loading) return const Center(child: CircularProgressIndicator(color: AppColors.teal));
     if (_bookings.isEmpty) {
-      return Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-        Container(width: 80, height: 80,
-          decoration: BoxDecoration(color: AppColors.tealSoft, shape: BoxShape.circle),
-          child: const Icon(Icons.calendar_today_rounded, size: 40, color: AppColors.teal)),
-        const SizedBox(height: 16),
-        const Text('No Active Bookings', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.ink)),
-        const SizedBox(height: 8),
-        const Text('Book a service from Home to get started!', style: TextStyle(color: AppColors.muted, fontSize: 13)),
-      ]));
+      return RefreshIndicator(
+        onRefresh: _refresh,
+        color: AppColors.teal,
+        child: ListView(children: [
+          const SizedBox(height: 120),
+          Center(child: Container(width: 80, height: 80,
+            decoration: const BoxDecoration(color: AppColors.tealSoft, shape: BoxShape.circle),
+            child: const Icon(Icons.calendar_today_rounded, size: 40, color: AppColors.teal))),
+          const SizedBox(height: 16),
+          const Center(child: Text('No Active Bookings', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.ink))),
+          const SizedBox(height: 8),
+          const Center(child: Text('Book a service from Home to get started!', style: TextStyle(color: AppColors.muted, fontSize: 13))),
+        ]));
     }
     return RefreshIndicator(
       onRefresh: _refresh,
       color: AppColors.teal,
       child: ListView.builder(padding: const EdgeInsets.all(16),
-        itemCount: _bookings.length, itemBuilder: (_, i) => _card(_bookings[i])));
+        itemCount: _bookings.length, itemBuilder: (_, i) => _card(_merged(_bookings[i]))));
   }
 
   Widget _card(Map<String, dynamic> b) {
-    final status = b['status'] ?? '';
+    final status = b['status']?.toString() ?? '';
+    final payStatus = b['payment_status']?.toString() ?? '';
     final sc = _statusColor(status);
-    final hasProvider = (b['providerName'] ?? '').toString().isNotEmpty;
-    final canCancel = ['confirmed','searching','pending','accepted','active'].contains(status);
-    final penalty = int.tryParse(b['penalty']?.toString() ?? '0') ?? 0;
+    final providerName = BookingUtils.str(b, ['provider_name']);
+    final providerPhone = BookingUtils.str(b, ['provider_phone']);
+    final canCancel = ['searching','price_quoted','negotiating','negotiation_final','confirmed','active'].contains(status);
     final id = (b['id'] ?? '').toString();
+    final busy = _busy.contains(id);
     final shortId = id.replaceAll('-','').length > 8 ? id.replaceAll('-','').substring(0,8).toUpperCase() : id.toUpperCase();
+    final amount = BookingUtils.amount(b);
+    final slot = [BookingUtils.str(b, ['slot_date']), BookingUtils.str(b, ['slot_time'])]
+        .where((x) => x.isNotEmpty).join(' at ');
+    final startOtp = BookingUtils.startOtp(b);
+    final completionOtp = BookingUtils.completionOtp(b);
+    final distKm = BookingUtils.providerDistanceKm(b);
+    final mapsUri = BookingUtils.providerMapsUri(b);
+    final liveLoc = BookingUtils.str(b, ['provider_loc_at']).isNotEmpty;
+    final payable = PaymentScreen.isPayable(b);
+    final quote = status == 'negotiation_final'
+        ? (num.tryParse(b['final_price']?.toString() ?? '')?.toInt() ?? 0)
+        : status == 'price_quoted'
+            ? (num.tryParse(b['quoted_price']?.toString() ?? '')?.toInt() ?? 0)
+            : 0;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
@@ -309,10 +351,10 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
           decoration: BoxDecoration(color: sc.withOpacity(0.07),
             borderRadius: const BorderRadius.vertical(top: Radius.circular(16))),
           child: Row(children: [
-            Text(b['icon'] ?? '🔧', style: const TextStyle(fontSize: 26)),
+            Text(BookingUtils.str(b, ['svc_icon'], '🔧'), style: const TextStyle(fontSize: 26)),
             const SizedBox(width: 10),
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(b['service'] ?? 'Service', style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.ink)),
+              Text(BookingUtils.str(b, ['svc_name'], 'Service'), style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.ink)),
               Text('ID: $shortId', style: const TextStyle(fontSize: 10, color: AppColors.muted)),
             ])),
             Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -320,24 +362,16 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
               child: Text(_statusLabel(status), style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: sc))),
           ])),
         Padding(padding: const EdgeInsets.all(14), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          _row(Icons.calendar_today_rounded, '${b['date'] ?? ''} at ${b['time'] ?? ''}'),
-          const SizedBox(height: 5),
-          _row(Icons.location_on_rounded, '${b['address'] ?? ''}${(b['landmark'] ?? '').toString().isNotEmpty ? '  (${b['landmark']})' : ''}'),
-          const SizedBox(height: 5),
-          _row(Icons.currency_rupee_rounded, 'Rs.${b['price'] ?? b['priceVal'] ?? 0}${penalty > 0 ? '  +  Rs.$penalty penalty' : ''}'),
-          if (penalty > 0) ...[
-            const SizedBox(height: 8),
-            Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-              decoration: BoxDecoration(color: AppColors.red.withOpacity(0.07), borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: AppColors.red.withOpacity(0.2))),
-              child: Row(children: [
-                const Icon(Icons.warning_amber_rounded, color: AppColors.red, size: 14),
-                const SizedBox(width: 6),
-                Text('Rs.$penalty penalty — deducted from next payment',
-                  style: const TextStyle(fontSize: 11, color: AppColors.red, fontWeight: FontWeight.w600)),
-              ])),
+          if (slot.isNotEmpty) ...[
+            _row(Icons.calendar_today_rounded, slot),
+            const SizedBox(height: 5),
           ],
-          if (hasProvider) ...[
+          _row(Icons.location_on_rounded, BookingUtils.str(b, ['address'])),
+          if (amount > 0) ...[
+            const SizedBox(height: 5),
+            _row(Icons.currency_rupee_rounded, '₹$amount'),
+          ],
+          if (providerName.isNotEmpty) ...[
             const SizedBox(height: 10),
             Container(padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(color: AppColors.greenSoft, borderRadius: BorderRadius.circular(10),
@@ -349,58 +383,89 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
                 const SizedBox(width: 10),
                 Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   const Text('Your Provider', style: TextStyle(fontSize: 11, color: AppColors.green, fontWeight: FontWeight.w700)),
-                  Text(b['providerName'] ?? '', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.ink)),
-                  if ((b['acceptedBy'] as Map?)?['phone']?.toString().isNotEmpty == true)
-                    Text((b['acceptedBy'] as Map)['phone'], style: const TextStyle(fontSize: 12, color: AppColors.muted)),
+                  Text(providerName, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.ink)),
+                  if (providerPhone.isNotEmpty)
+                    Text(providerPhone, style: const TextStyle(fontSize: 12, color: AppColors.muted)),
                 ])),
-                if ((b['acceptedBy'] as Map?)?['phone']?.toString().isNotEmpty == true)
+                if (providerPhone.isNotEmpty)
                   GestureDetector(
-                    onTap: () { HapticFeedback.mediumImpact(); launchUrl(Uri.parse('tel:${(b['acceptedBy'] as Map)['phone']}')); },
+                    onTap: () { HapticFeedback.mediumImpact(); launchUrl(Uri.parse('tel:$providerPhone')); },
                     child: Container(width: 38, height: 38,
                       decoration: const BoxDecoration(color: AppColors.green, shape: BoxShape.circle),
                       child: const Icon(Icons.phone_rounded, color: Colors.white, size: 18))),
               ])),
           ],
-          if (status == 'otp_sent') ...[
+
+          // Provider quote waiting for the customer
+          if (quote > 0) ...[
+            const SizedBox(height: 10),
+            _notice(Icons.local_offer_rounded, AppColors.teal,
+                status == 'negotiation_final'
+                    ? 'Final offer from provider: ₹$quote'
+                    : 'Provider quoted ₹$quote'),
+            const SizedBox(height: 8),
+            _primaryButton(busy ? 'Please wait…' : 'Accept ₹$quote', Icons.check_rounded, AppColors.teal,
+                busy ? null : () => _acceptQuote(b, quote)),
+          ],
+          if (status == 'negotiating') ...[
+            const SizedBox(height: 10),
+            _notice(Icons.forum_rounded, AppColors.brand, 'Waiting for the provider to reply to your offer…'),
+          ],
+
+          // Start OTP — share when the provider arrives
+          if (status == 'confirmed') ...[
+            const SizedBox(height: 10),
+            if (startOtp.isNotEmpty)
+              _otpBox('START OTP', startOtp, 'Share this with your provider when they arrive to start the job.', AppColors.teal)
+            else
+              _primaryButton(busy ? 'Please wait…' : 'Get Start OTP', Icons.key_rounded, AppColors.teal,
+                  busy ? null : () => _generateStartOtp(b)),
+          ],
+
+          // Completion OTP — share only when satisfied
+          if (completionOtp.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            _otpBox('COMPLETION OTP', completionOtp, 'Share only after the work is done to your satisfaction.', AppColors.green),
+          ],
+
+          // Live tracking
+          if (mapsUri != null) ...[
             const SizedBox(height: 10),
             Container(padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(color: AppColors.brand.withOpacity(0.08), borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: AppColors.brand.withOpacity(0.3))),
-              child: const Row(children: [
-                Icon(Icons.lock_rounded, color: AppColors.brand, size: 16),
-                SizedBox(width: 8),
-                Expanded(child: Text('Provider requesting OTP — check popup above',
-                  style: TextStyle(fontSize: 12, color: AppColors.brand, fontWeight: FontWeight.w600))),
+              decoration: BoxDecoration(color: AppColors.tealSoft, borderRadius: BorderRadius.circular(10)),
+              child: Row(children: [
+                const Icon(Icons.near_me_rounded, color: AppColors.teal, size: 18),
+                const SizedBox(width: 8),
+                Expanded(child: Text(
+                  distKm != null
+                      ? 'Provider is ${distKm < 1 ? '${(distKm * 1000).round()} m' : '${distKm.toStringAsFixed(1)} km'} away'
+                          '${liveLoc ? '' : ' (approx.)'}'
+                      : 'See where your provider is',
+                  style: const TextStyle(fontSize: 12, color: AppColors.ink2, fontWeight: FontWeight.w600))),
+                TextButton.icon(
+                  onPressed: () {
+                    HapticFeedback.selectionClick();
+                    launchUrl(mapsUri, mode: LaunchMode.externalApplication);
+                  },
+                  icon: const Icon(Icons.map_rounded, size: 16, color: AppColors.teal),
+                  label: const Text('Map', style: TextStyle(color: AppColors.teal, fontWeight: FontWeight.w700))),
               ])),
           ],
-          // Payment pending — show Pay Now button
-          if (status == 'payment_pending') ...[
+
+          // Payment
+          if (payStatus == 'cash_pending') ...[
             const SizedBox(height: 10),
-            Container(padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(color: AppColors.yellow.withOpacity(0.08),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: AppColors.yellow.withOpacity(0.4))),
-              child: const Row(children: [
-                Icon(Icons.hourglass_top_rounded, color: AppColors.yellow, size: 16),
-                SizedBox(width: 8),
-                Expanded(child: Text('Service completed! Please complete your payment.',
-                  style: TextStyle(fontSize: 12, color: AppColors.ink2, fontWeight: FontWeight.w600))),
-              ])),
+            _notice(Icons.hourglass_top_rounded, AppColors.yellow,
+                'Cash payment recorded — awaiting provider confirmation.'),
+          ] else if (payStatus == 'paid') ...[
+            const SizedBox(height: 10),
+            _notice(Icons.verified_rounded, AppColors.green, 'Paid'),
+          ] else if (payable) ...[
+            const SizedBox(height: 10),
+            if (status == 'completed')
+              _notice(Icons.hourglass_top_rounded, AppColors.yellow, 'Service completed! Please complete your payment.'),
             const SizedBox(height: 8),
-            SizedBox(width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: () {
-                  HapticFeedback.mediumImpact();
-                  Navigator.push(context, MaterialPageRoute(
-                    builder: (_) => PaymentScreen(bookingId: b['id'], booking: b)));
-                },
-                icon: const Icon(Icons.payment_rounded, color: Colors.white, size: 18),
-                label: Text('Pay Rs.${b['price'] ?? b['priceVal'] ?? 0} Now',
-                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Colors.white)),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFE8251A),
-                  minimumSize: const Size(double.infinity, 48),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))))),
+            _primaryButton('Pay ₹$amount', Icons.payment_rounded, const Color(0xFFE8251A), () => _openPayment(b)),
           ],
 
           if (canCancel) ...[
@@ -411,12 +476,53 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
                 style: OutlinedButton.styleFrom(side: const BorderSide(color: AppColors.red),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                   minimumSize: const Size(double.infinity, 38)),
-                child: Text(['accepted','active'].contains(status) ? 'Cancel Booking (Rs.20 penalty)' : 'Cancel Booking',
+                child: Text('Cancel Booking',
                   style: const TextStyle(color: AppColors.red, fontWeight: FontWeight.w700, fontSize: 13)))),
           ],
         ])),
       ]),
     );
+  }
+
+  Widget _notice(IconData icon, Color color, String text) {
+    return Container(padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(color: color.withOpacity(0.08), borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withOpacity(0.35))),
+      child: Row(children: [
+        Icon(icon, color: color, size: 16),
+        const SizedBox(width: 8),
+        Expanded(child: Text(text, style: const TextStyle(fontSize: 12, color: AppColors.ink2, fontWeight: FontWeight.w600))),
+      ]));
+  }
+
+  Widget _primaryButton(String label, IconData icon, Color color, VoidCallback? onPressed) {
+    return SizedBox(width: double.infinity,
+      child: ElevatedButton.icon(
+        onPressed: onPressed,
+        icon: Icon(icon, color: Colors.white, size: 18),
+        label: Text(label, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Colors.white)),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: color,
+          minimumSize: const Size(double.infinity, 46),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)))));
+  }
+
+  Widget _otpBox(String title, String code, String hint, Color color) {
+    return Container(width: double.infinity, padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(color: color.withOpacity(0.06), borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.4))),
+      child: Column(children: [
+        Text(title, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: color, letterSpacing: 1)),
+        const SizedBox(height: 8),
+        Row(mainAxisAlignment: MainAxisAlignment.center,
+          children: code.split('').map((d) => Container(
+            width: 40, height: 48, margin: const EdgeInsets.symmetric(horizontal: 3),
+            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: color, width: 1.5)),
+            child: Center(child: Text(d, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: AppColors.ink))))).toList()),
+        const SizedBox(height: 8),
+        Text(hint, textAlign: TextAlign.center, style: const TextStyle(fontSize: 11, color: AppColors.ink2)),
+      ]));
   }
 
   // Provider accepted in-app alert
@@ -521,6 +627,10 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
                   Expanded(child: Text('Only share after service is completed to your satisfaction.',
                     style: TextStyle(fontSize: 11, color: AppColors.ink2))),
                 ])),
+              const SizedBox(height: 8),
+              TextButton(
+                onPressed: () => setState(() => _showOtpPopup = false),
+                child: const Text('Close', style: TextStyle(color: AppColors.muted, fontSize: 13))),
             ])),
           ]),
         ),
@@ -539,23 +649,23 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
   Color _statusColor(String s) {
     switch (s) {
       case 'confirmed': return AppColors.teal;
-      case 'searching': case 'pending': return AppColors.yellow;
-      case 'accepted': return AppColors.green;
-      case 'active': case 'otp_sent': return AppColors.brand;
-      case 'payment_pending': return AppColors.yellow;
+      case 'searching': return AppColors.yellow;
+      case 'price_quoted': case 'negotiating': case 'negotiation_final': return AppColors.green;
+      case 'active': return AppColors.brand;
+      case 'completed': return AppColors.yellow;
       default: return AppColors.muted;
     }
   }
 
   String _statusLabel(String s) {
     switch (s) {
-      case 'confirmed': return 'Confirmed';
       case 'searching': return 'Searching';
-      case 'pending': return 'Pending';
-      case 'accepted': return 'Provider Assigned';
+      case 'price_quoted': return 'Quote Received';
+      case 'negotiating': return 'Negotiating';
+      case 'negotiation_final': return 'Final Offer';
+      case 'confirmed': return 'Confirmed';
       case 'active': return 'In Progress';
-      case 'otp_sent': return 'Completing';
-      case 'payment_pending': return '⏳ Payment Pending';
+      case 'completed': return 'Payment Pending';
       default: return s;
     }
   }

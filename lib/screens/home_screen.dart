@@ -1,21 +1,16 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart' show kReleaseMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_database/firebase_database.dart';
 import '../services/api_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
 import '../utils/theme.dart';
-import 'test_console_screen.dart';
-import 'login_screen.dart';
+import '../utils/booking_utils.dart';
 import 'location_screen.dart';
-import 'booking/service_detail_screen.dart';
 import 'services/service_screen.dart';
 import 'dashboard/my_bookings_screen.dart';
-import 'dashboard/booking_history_screen.dart';
 import 'dashboard/profile_screen.dart';
 import 'dashboard/completed_bookings_screen.dart';
 import 'dashboard/cancelled_bookings_screen.dart';
@@ -34,9 +29,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   String _searchQuery = '';
   String _city = 'Your City';
   Map<String, Map<String,int>> _providerPriceRanges = {}; // svcId → {min, max}
-  int _testTapCount = 0;
-  DateTime? _lastTap;
   User? _user;
+  StreamSubscription<User?>? _userSub;
   int _selectedCat = 0;
 
   // App-level OTP listener — fires regardless of which tab is active
@@ -44,8 +38,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   bool _showAppOtpPopup = false;
   String _appOtpCode = '';
   String _appOtpService = '';
-  String _appOtpBookingId = '';
-  Map<String, dynamic> _appOtpBooking = {};
+  // "<bookingId>:<otp>" already shown, so a dismissed popup stays closed.
+  final Set<String> _appOtpShown = {};
+  bool _appPollBusy = false;
 
   final List<Map<String, dynamic>> _categories = [
     {'icon': '🏠', 'label': 'All'},
@@ -116,8 +111,19 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   @override
   void initState() {
     super.initState();
-    _startAppOtpListener();
     _user = FirebaseAuth.instance.currentUser;
+    _startAppOtpListener();
+    // Keep avatar/name fresh after logging in (e.g. from ServiceScreen) or
+    // updating the profile; restart the booking poller for the new user.
+    _userSub = FirebaseAuth.instance.userChanges().listen((u) {
+      if (!mounted) return;
+      final changedUser = u?.uid != _user?.uid;
+      setState(() => _user = u);
+      if (changedUser) {
+        _startAppOtpListener();
+        if (u != null) _loadAndUpdateCity();
+      }
+    });
     _bookingTabCtrl = TabController(length: 3, vsync: this);
     _loadAndUpdateCity();
     _loadProviderPriceRanges();
@@ -155,7 +161,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         final profile = await ApiService.getCustomer(uid);
         if (profile != null) {
           final city = profile['city']?.toString() ?? '';
-          final name = profile['name']?.toString() ?? '';
           if (mounted) setState(() {
             if (city.isNotEmpty) _city = city;
           });
@@ -276,50 +281,65 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   @override
   void dispose() {
     _appOtpListener?.cancel();
+    _userSub?.cancel();
     _searchCtrl.dispose();
     _bookingTabCtrl.dispose();
     super.dispose();
   }
 
+  /// App-level poll of the customer's active booking: pops up the completion
+  /// OTP when the provider requests it, and offers payment once the booking
+  /// is payable (status active/completed, payment_status != paid).
   void _startAppOtpListener() {
+    _appOtpListener?.cancel();
+    _appOtpListener = null;
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
-    // Poll MySQL for active booking OTP status
     _appOtpListener = Stream.periodic(const Duration(seconds: 5))
-        .asyncMap((_) => ApiService.getActiveBooking(uid))
-        .listen((booking) {
-      if (booking == null || !mounted) return;
-      final all = {'active': booking};
-      for (final entry in all.entries) {
-        final data = Map<String, dynamic>.from(entry.value as Map);
-        final status = data['status']?.toString() ?? '';
-        final otp = data['otp']?.toString() ?? '';
-        final bookingId = data['bookingId']?.toString() ?? entry.key;
-        if (status == 'waiting' && otp.isNotEmpty) {
-          // Show popup — also handles resent OTP (even if popup already shown)
-          setState(() {
-            _showAppOtpPopup = true;
-            _appOtpCode = otp;
-            _appOtpBookingId = bookingId;
-            _appOtpService = data['service']?.toString() ?? '';
-            _appOtpBooking = data;
-          });
-        } else if (status == 'verified' && _appOtpBookingId == bookingId) {
-          if (_showAppOtpPopup) setState(() => _showAppOtpPopup = false);
-          // Open payment once — this poller ticks every 5s and MyBookings
-          // polls too; PaymentScreen.reserve() de-duplicates across both.
-          if (!PaymentScreen.reserve(bookingId)) continue;
-          ApiService.getBooking(bookingId).then((booking) {
-            if (booking != null && mounted) {
-              Navigator.push(context, MaterialPageRoute(
-                  builder: (_) => PaymentScreen(bookingId: bookingId, booking: booking)));
-            } else {
-              PaymentScreen.release(bookingId);
-            }
-          }).catchError((_) { PaymentScreen.release(bookingId); });
-        }
+        .listen((_) => _pollActiveBooking(uid));
+  }
+
+  Future<void> _pollActiveBooking(String uid) async {
+    if (_appPollBusy) return;
+    _appPollBusy = true;
+    try {
+      final active = await ApiService.getActiveBooking(uid);
+      if (active == null || !mounted) return;
+      final bookingId = active['id']?.toString() ?? '';
+      if (bookingId.isEmpty) return;
+      final status = active['status']?.toString() ?? '';
+      // `active` rows are full booking rows; fetch `get` only when we need
+      // provider/OTP details that might be newer.
+      final data = (status == 'active' || status == 'completed')
+          ? (await ApiService.getBooking(bookingId) ?? active)
+          : active;
+      if (!mounted) return;
+
+      final cotp = BookingUtils.completionOtp(data);
+      if (cotp.isNotEmpty && _appOtpShown.add('$bookingId:$cotp')) {
+        HapticFeedback.heavyImpact();
+        setState(() {
+          _showAppOtpPopup = true;
+          _appOtpCode = cotp;
+          _appOtpService = BookingUtils.str(data, ['svc_name']);
+        });
+      } else if (cotp.isEmpty && _showAppOtpPopup && status != 'active') {
+        setState(() => _showAppOtpPopup = false);
       }
-    });
+
+      // Offer payment once the job is completed and unpaid. Opened at most
+      // once per booking per session (MyBookings has a Pay button too);
+      // PaymentScreen's guard de-duplicates across pollers.
+      if (status == 'completed' && PaymentScreen.isPayable(data) &&
+          PaymentScreen.reserveAutoPrompt(bookingId)) {
+        if (_showAppOtpPopup) setState(() => _showAppOtpPopup = false);
+        Navigator.push(context, MaterialPageRoute(
+            builder: (_) => PaymentScreen(bookingId: bookingId, booking: data)));
+      }
+    } catch (_) {
+    } finally {
+      _appPollBusy = false;
+    }
   }
 
   Widget _buildAppOtpPopup() {
@@ -407,21 +427,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     return n.isEmpty ? 'U' : n.substring(0, 1).toUpperCase();
   }
 
-  void _secretTap() {
-    // Test console is a debug tool only — never reachable in release builds.
-    if (kReleaseMode) return;
-    final now = DateTime.now();
-    if (_lastTap != null && now.difference(_lastTap!).inSeconds > 2) {
-      _testTapCount = 0;
-    }
-    _lastTap = now;
-    _testTapCount++;
-    if (_testTapCount >= 5) {
-      _testTapCount = 0;
-      Navigator.push(context, MaterialPageRoute(
-        builder: (_) => const TestConsoleScreen()));
-    }
-  }
   @override
   Widget build(BuildContext context) {
     return Scaffold(

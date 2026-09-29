@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_database/firebase_database.dart';
 import '../../services/api_service.dart';
 import '../../utils/theme.dart';
 import '../../services/hs_catalog.dart';
@@ -41,7 +40,7 @@ class _ServiceScreenState extends State<ServiceScreen> {
       final flat = <String, int>{};
       grouped.forEach((groupKey, groupVal) {
         if (groupVal is Map) {
-          (groupVal as Map).forEach((optKey, price) {
+          groupVal.forEach((optKey, price) {
             if (price is int || price is double) {
               flat['${groupKey}_$optKey'] = price is int ? price : (price as double).toInt();
             }
@@ -646,7 +645,6 @@ class _ServiceScreenState extends State<ServiceScreen> {
   // ── BOTTOM BAR — matches HTML exactly ─────────────────────────
   Widget _buildBottomBar() {
     final total = _total;
-    final hasAny = _selectedTasks.isNotEmpty || _isVisitOnly;
 
     // Build summary chips
     final chips = <String>[];

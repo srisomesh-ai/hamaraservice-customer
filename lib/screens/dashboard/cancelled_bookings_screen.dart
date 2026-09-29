@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_database/firebase_database.dart';
 import '../../services/api_service.dart';
 import '../../utils/theme.dart';
 
@@ -86,10 +85,10 @@ class _CancelledBookingsScreenState extends State<CancelledBookingsScreen> {
           decoration: BoxDecoration(color: AppColors.red.withOpacity(0.06),
             borderRadius: const BorderRadius.vertical(top: Radius.circular(16))),
           child: Row(children: [
-            Text(b['icon'] ?? '🔧', style: const TextStyle(fontSize: 26)),
+            Text(b['svc_icon'] ?? b['icon'] ?? '🔧', style: const TextStyle(fontSize: 26)),
             const SizedBox(width: 10),
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(b['service'] ?? 'Service',
+              Text(b['svc_name'] ?? b['service'] ?? 'Service',
                 style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.ink)),
               Text('ID: $shortId', style: const TextStyle(fontSize: 10, color: AppColors.muted)),
             ])),
@@ -101,11 +100,11 @@ class _CancelledBookingsScreenState extends State<CancelledBookingsScreen> {
           ])),
         Padding(padding: const EdgeInsets.all(14), child: Column(
           crossAxisAlignment: CrossAxisAlignment.start, children: [
-          _row(Icons.calendar_today_rounded, '${b['date'] ?? ''} at ${b['time'] ?? ''}'),
+          _row(Icons.calendar_today_rounded, '${b['slot_date'] ?? b['date'] ?? ''} at ${b['slot_time'] ?? b['time'] ?? ''}'),
           const SizedBox(height: 5),
           _row(Icons.location_on_rounded, b['address'] ?? ''),
           const SizedBox(height: 5),
-          _row(Icons.currency_rupee_rounded, 'Rs.${b['price'] ?? b['priceVal'] ?? 0}'),
+          _row(Icons.currency_rupee_rounded, 'Rs.${b['confirmed_price'] ?? b['amount'] ?? b['price'] ?? 0}'),
           if ((b['cancelReason'] ?? '').toString().isNotEmpty) ...[
             const SizedBox(height: 5),
             _row(Icons.info_outline_rounded, 'Reason: ${b['cancelReason']}'),

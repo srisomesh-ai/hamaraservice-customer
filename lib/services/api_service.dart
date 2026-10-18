@@ -1,61 +1,121 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 // ─────────────────────────────────────────────────────────────
-// ApiService — all data calls go to Hostinger MySQL
-// Firebase Auth is KEPT for customer login (Google Sign-In)
-// Firebase is NOT used for data storage anymore
+// ApiService — every data call goes to the HamaraService PHP API
+// (MySQL is the only data store). Firebase is used only for Auth
+// (ID token sent as Bearer) and FCM push.
+// Contract: hamaraservice-website/docs/API_CONTRACT.md
 // ─────────────────────────────────────────────────────────────
+
+/// Error returned by the API (or a network failure). [message] is safe to
+/// show to the user.
+class ApiException implements Exception {
+  final String message;
+  final int? statusCode;
+  const ApiException(this.message, [this.statusCode]);
+  @override
+  String toString() => message;
+}
 
 class ApiService {
   static const String _base = 'https://hamaraservice.com/api';
+  static const Duration _timeout = Duration(seconds: 20);
 
-  // ── Get Firebase token (sent with every request) ────────
+  // ── Firebase ID token (attached to every request) ───────
   static Future<String> _token() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return '';
     try {
       return await user.getIdToken() ?? '';
-    } catch (_) { return ''; }
+    } catch (_) {
+      return '';
+    }
   }
 
-  // ── HTTP helpers ────────────────────────────────────────
-  static Future<Map<String,dynamic>> _get(
-      String endpoint, {Map<String,String>? params}) async {
-    var uri = Uri.parse('$_base/$endpoint');
-    if (params != null) uri = uri.replace(queryParameters: params);
+  static Future<Map<String, String>> _headers() async {
     final token = await _token();
-    final resp = await http.get(uri, headers: {
-      'Authorization': 'Bearer $token',
+    return {
       'Content-Type': 'application/json',
-    }).timeout(const Duration(seconds: 15));
-    return jsonDecode(resp.body) as Map<String,dynamic>;
+      'Accept': 'application/json',
+      if (token.isNotEmpty) 'Authorization': 'Bearer $token',
+    };
   }
 
-  static Future<Map<String,dynamic>> _post(
-      String endpoint, Map<String,dynamic> body,
-      {Map<String,String>? params}) async {
+  /// Parses a response. Returns `data` on success, throws [ApiException]
+  /// with the server's `error` message otherwise.
+  static dynamic _handle(http.Response resp) {
+    dynamic decoded;
+    try {
+      decoded = jsonDecode(resp.body);
+    } catch (_) {
+      throw ApiException(
+          'Server error (HTTP ${resp.statusCode}). Please try again.',
+          resp.statusCode);
+    }
+    if (decoded is! Map) {
+      throw ApiException(
+          'Unexpected server response (HTTP ${resp.statusCode}).',
+          resp.statusCode);
+    }
+    if (decoded['success'] == true && resp.statusCode < 400) {
+      return decoded['data'];
+    }
+    final msg = decoded['error']?.toString() ?? '';
+    throw ApiException(
+        msg.isNotEmpty ? msg : 'Request failed (HTTP ${resp.statusCode}).',
+        resp.statusCode);
+  }
+
+  static Future<dynamic> _send(Future<http.Response> Function() call) async {
+    try {
+      final resp = await call().timeout(_timeout);
+      return _handle(resp);
+    } on ApiException {
+      rethrow;
+    } on TimeoutException {
+      throw const ApiException('The server took too long to respond. Please try again.');
+    } catch (_) {
+      throw const ApiException('Network error. Check your internet connection.');
+    }
+  }
+
+  static Future<dynamic> _get(String endpoint,
+      {Map<String, String>? params}) async {
     var uri = Uri.parse('$_base/$endpoint');
     if (params != null) uri = uri.replace(queryParameters: params);
-    final token = await _token();
-    final resp = await http.post(uri,
-      headers: {
-        'Authorization': 'Bearer $token',
-        'Content-Type': 'application/json',
-      },
-      body: jsonEncode(body),
-    ).timeout(const Duration(seconds: 15));
-    return jsonDecode(resp.body) as Map<String,dynamic>;
+    final headers = await _headers();
+    return _send(() => http.get(uri, headers: headers));
   }
+
+  static Future<dynamic> _post(String endpoint, Map<String, dynamic> body,
+      {Map<String, String>? params}) async {
+    var uri = Uri.parse('$_base/$endpoint');
+    if (params != null) uri = uri.replace(queryParameters: params);
+    final headers = await _headers();
+    return _send(() => http.post(uri, headers: headers, body: jsonEncode(body)));
+  }
+
+  static Map<String, dynamic> _map(dynamic v) =>
+      v is Map ? Map<String, dynamic>.from(v) : <String, dynamic>{};
+
+  static List<Map<String, dynamic>> _list(dynamic v) => v is List
+      ? v.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList()
+      : <Map<String, dynamic>>[];
 
   // ── CUSTOMERS ───────────────────────────────────────────
 
-  /// Called after Firebase login — saves customer to MySQL
-  static Future<Map<String,dynamic>?> registerCustomer({
+  /// Upsert the customer profile (customers.php?action=register).
+  /// Must be called after every login method; empty fields are not
+  /// overwritten by the server.
+  static Future<Map<String, dynamic>> registerCustomer({
     String? name,
     String? phone,
+    String? email,
     String? gender,
     String? address,
     String? city,
@@ -64,250 +124,237 @@ class ApiService {
     String? fcmToken,
     String authMethod = 'email',
   }) async {
-    final res = await _post('customers.php', {
-      if (name    != null) 'name':    name,
-      if (phone   != null) 'phone':   phone,
-      if (gender  != null) 'gender':  gender,
-      if (address != null) 'address': address,
-      if (city    != null) 'city':    city,
-      if (lat     != null) 'lat':     lat,
-      if (lng     != null) 'lng':     lng,
-      if (fcmToken!= null) 'fcm_token': fcmToken,
+    final data = await _post('customers.php', {
+      if (name != null && name.isNotEmpty) 'name': name,
+      if (phone != null && phone.isNotEmpty) 'phone': phone,
+      if (email != null && email.isNotEmpty) 'email': email,
+      if (gender != null && gender.isNotEmpty) 'gender': gender,
+      if (address != null && address.isNotEmpty) 'address': address,
+      if (city != null && city.isNotEmpty) 'city': city,
+      if (lat != null) 'lat': lat,
+      if (lng != null) 'lng': lng,
+      if (fcmToken != null && fcmToken.isNotEmpty) 'fcm_token': fcmToken,
       'auth_method': authMethod,
     }, params: {'action': 'register'});
-    if (res['success'] == true) return res['data'] as Map<String,dynamic>?;
-    return null;
+    final customer = _map(data);
+    if (customer.isNotEmpty) await saveCurrentUser(customer);
+    return customer;
   }
 
-  /// Get customer profile from MySQL
-  static Future<Map<String,dynamic>?> getCustomer(String uid) async {
-    final res = await _get('customers.php',
-        params: {'action': 'get', 'id': uid});
-    if (res['success'] == true) return res['data'] as Map<String,dynamic>?;
-    return null;
+  /// Makes sure a customer row exists for the signed-in Firebase user and
+  /// that the current FCM token is stored. Throws [ApiException] on failure.
+  static Future<Map<String, dynamic>> ensureCustomerProfile({
+    String? name,
+    String? phone,
+    String? authMethod,
+  }) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) throw const ApiException('Please sign in first.', 401);
+    String? fcm;
+    try {
+      fcm = await FirebaseMessaging.instance.getToken();
+    } catch (_) {}
+    String method = authMethod ?? '';
+    if (method.isEmpty) {
+      final isGoogle =
+          user.providerData.any((p) => p.providerId == 'google.com');
+      method = isGoogle ? 'google' : 'email';
+    }
+    return registerCustomer(
+      name: (name != null && name.isNotEmpty) ? name : (user.displayName ?? ''),
+      phone: phone,
+      email: user.email ?? '',
+      fcmToken: fcm,
+      authMethod: method,
+    );
   }
 
-  /// Update customer profile
-  static Future<bool> updateCustomer(Map<String,dynamic> data) async {
-    final res = await _post('customers.php', data,
-        params: {'action': 'update'});
-    return res['success'] == true;
+  /// Own customer profile, or null if it does not exist yet.
+  static Future<Map<String, dynamic>?> getCustomer() async {
+    try {
+      final data = await _get('customers.php', params: {'action': 'get'});
+      final m = _map(data);
+      return m.isEmpty ? null : m;
+    } on ApiException catch (e) {
+      if (e.statusCode == 404) return null;
+      rethrow;
+    }
   }
 
-  /// Save FCM token
+  /// Update profile fields (name, phone, gender, address, city, lat, lng).
+  static Future<Map<String, dynamic>> updateCustomer(
+      Map<String, dynamic> data) async {
+    final res = await _post('customers.php', data, params: {'action': 'update'});
+    return _map(res);
+  }
+
+  /// Save FCM token (customers.php?action=fcm).
   static Future<void> saveFcmToken(String fcmToken) async {
+    if (fcmToken.isEmpty) return;
     await _post('customers.php', {'fcm_token': fcmToken},
         params: {'action': 'fcm'});
   }
 
-  /// Get customer booking history
-  static Future<List<Map<String,dynamic>>> getCustomerBookings(String uid) async {
-    final res = await _get('customers.php',
-        params: {'action': 'bookings', 'id': uid});
-    if (res['success'] == true) {
-      return (res['data'] as List).cast<Map<String,dynamic>>();
-    }
-    return [];
-  }
-
   // ── SERVICES ────────────────────────────────────────────
 
-  /// Get all 34 services
-  static Future<List<Map<String,dynamic>>> getServices() async {
-    final res = await _get('services.php', params: {'action': 'all'});
-    if (res['success'] == true) {
-      return (res['data'] as List).cast<Map<String,dynamic>>();
-    }
-    return [];
+  /// Provider price ranges per service: {svcId: {min, max, provider_count}}
+  static Future<Map<String, dynamic>> getServicePriceRanges(
+      {String? city}) async {
+    final params = <String, String>{'action': 'price_ranges'};
+    if (city != null && city.isNotEmpty) params['city'] = city;
+    return _map(await _get('services.php', params: params));
   }
 
-  /// Get provider price ranges per service (for homepage)
-  static Future<Map<String,dynamic>> getServicePriceRanges({String? city}) async {
-    final params = <String,String>{'action': 'price_ranges'};
-    if (city != null) params['city'] = city;
-    final res = await _get('services.php', params: params);
-    if (res['success'] == true) return res['data'] as Map<String,dynamic>;
-    return {};
-  }
-
-  /// Get reference prices for a service
-  static Future<Map<String,dynamic>> getServicePrices(String svcId) async {
-    final res = await _get('services.php',
-        params: {'action': 'prices', 'id': svcId});
-    if (res['success'] == true) return res['data'] as Map<String,dynamic>;
-    return {};
-  }
-
-  // ── PROVIDERS ───────────────────────────────────────────
-
-  /// Get nearby providers for radar
-  static Future<List<Map<String,dynamic>>> getNearbyProviders({
-    required double lat,
-    required double lng,
-    String? svcId,
-    String? city,
-    double radius = 20,
-  }) async {
-    final params = {
-      'action': 'nearby',
-      'lat': lat.toString(),
-      'lng': lng.toString(),
-      'radius': radius.toString(),
-      if (svcId != null) 'svc_id': svcId,
-      if (city != null && city.isNotEmpty) 'city': city,
-    };
-    final res = await _get('providers.php', params: params);
-    if (res['success'] == true) {
-      return (res['data'] as List).cast<Map<String,dynamic>>();
-    }
-    return [];
-  }
-
-  /// Get provider profile
-  static Future<Map<String,dynamic>?> getProvider(String id) async {
-    final res = await _get('providers.php',
-        params: {'action': 'get', 'id': id});
-    if (res['success'] == true) return res['data'] as Map<String,dynamic>?;
-    return null;
+  /// Reference prices for one service: {groupKey: {optionKey: price}}
+  static Future<Map<String, dynamic>> getServicePrices(String svcId) async {
+    return _map(await _get('services.php',
+        params: {'action': 'prices', 'id': svcId}));
   }
 
   // ── BOOKINGS ────────────────────────────────────────────
 
-  /// Create a new booking
-  static Future<String?> createBooking({
+  /// Create a booking. Returns the new booking id.
+  /// 409 → customer already has an open booking; 412 → no profile.
+  static Future<String> createBooking({
     required String svcId,
     required String svcName,
     String svcIcon = '',
     required String address,
-    required String city,
+    String landmark = '',
+    String city = '',
     double lat = 0,
     double lng = 0,
-    String? slotDate,
-    String? slotTime,
-    String? notes,
+    required String slotDate,
+    required String slotTime,
+    String notes = '',
+    required String contactName,
+    required String contactPhone,
+    int estPrice = 0,
+    List<String> summary = const [],
   }) async {
-    final res = await _post('bookings.php', {
-      'svc_id':    svcId,
-      'svc_name':  svcName,
-      'svc_icon':  svcIcon,
-      'address':   address,
-      'city':      city,
-      'lat':       lat,
-      'lng':       lng,
-      if (slotDate != null) 'slot_date': slotDate,
-      if (slotTime != null) 'slot_time': slotTime,
-      if (notes    != null) 'notes':     notes,
+    final data = await _post('bookings.php', {
+      'svc_id': svcId,
+      'svc_name': svcName,
+      'svc_icon': svcIcon,
+      'address': address,
+      'landmark': landmark,
+      'city': city,
+      'lat': lat,
+      'lng': lng,
+      'slot_date': slotDate,
+      'slot_time': slotTime,
+      'notes': notes,
+      'contact_name': contactName,
+      'contact_phone': contactPhone,
+      'est_price': estPrice,
+      'summary': summary,
     }, params: {'action': 'create'});
-    if (res['success'] == true) {
-      return (res['data'] as Map)['id'] as String?;
-    }
-    return null;
+    final id = _map(data)['id']?.toString() ?? '';
+    if (id.isEmpty) throw const ApiException('Booking could not be created.');
+    return id;
   }
 
-  /// Get booking details
-  static Future<Map<String,dynamic>?> getBooking(String id) async {
-    final res = await _get('bookings.php',
-        params: {'action': 'get', 'id': id});
-    if (res['success'] == true) return res['data'] as Map<String,dynamic>?;
-    return null;
+  /// Booking details (snake_case fields, see contract).
+  static Future<Map<String, dynamic>> getBooking(String id) async {
+    return _map(await _get('bookings.php', params: {'action': 'get', 'id': id}));
   }
 
-  /// Get active booking for customer (for radar polling)
-  static Future<Map<String,dynamic>?> getActiveBooking(String customerId) async {
-    final res = await _get('bookings.php', params: {
-      'action': 'active',
-      'id':     customerId,
-      'role':   'customer',
-    });
-    if (res['success'] == true && res['data'] != null) {
-      return res['data'] as Map<String,dynamic>;
-    }
-    return null;
+  /// Current open booking for the signed-in customer (includes
+  /// completed-but-unpaid), or null.
+  static Future<Map<String, dynamic>?> getActiveBooking() async {
+    final data = await _get('bookings.php', params: {'action': 'active'});
+    if (data == null) return null;
+    final m = _map(data);
+    return m.isEmpty ? null : m;
   }
 
-  /// Customer sends counter price (negotiate)
-  static Future<bool> negotiateBooking(String bookingId, int counterPrice) async {
-    final res = await _post('bookings.php', {
-      'booking_id':    bookingId,
-      'counter_price': counterPrice,
-    }, params: {'action': 'negotiate'});
-    return res['success'] == true;
+  /// Booking history, newest first. `other_party` = provider name.
+  static Future<List<Map<String, dynamic>>> getBookingHistory() async {
+    return _list(await _get('bookings.php', params: {'action': 'history'}));
   }
 
-  /// Customer confirms price
-  static Future<Map<String,dynamic>?> confirmPrice(
-      String bookingId, int price) async {
-    final res = await _post('bookings.php', {
-      'booking_id':      bookingId,
-      'confirmed_price': price,
-    }, params: {'action': 'confirm_price'});
-    if (res['success'] == true) return res['data'] as Map<String,dynamic>?;
-    return null;
+  static Future<Map<String, dynamic>> _bookingAction(
+      String action, String bookingId,
+      [Map<String, dynamic> extra = const {}]) async {
+    return _map(await _post('bookings.php', {'booking_id': bookingId, ...extra},
+        params: {'action': action}));
   }
 
-  /// Customer searches another provider
-  static Future<bool> searchAnother(String bookingId) async {
-    final res = await _post('bookings.php',
-        {'booking_id': bookingId},
-        params: {'action': 'search_another'});
-    return res['success'] == true;
-  }
+  /// Counter offer (status must be price_quoted; counter < quote).
+  static Future<Map<String, dynamic>> negotiate(
+          String bookingId, int counterPrice) =>
+      _bookingAction('negotiate', bookingId, {'counter_price': counterPrice});
 
-  /// Cancel booking
-  static Future<bool> cancelBooking(String bookingId) async {
-    final res = await _post('bookings.php',
-        {'booking_id': bookingId},
-        params: {'action': 'cancel'});
-    return res['success'] == true;
-  }
+  /// Accept the quote / final offer. The server decides the price.
+  static Future<Map<String, dynamic>> confirmPrice(String bookingId) =>
+      _bookingAction('confirm_price', bookingId);
 
-  /// Submit a review for a completed booking
-  static Future<bool> submitReview({
+  /// Decline the provider's quote → back to searching.
+  static Future<Map<String, dynamic>> declineQuote(String bookingId) =>
+      _bookingAction('decline', bookingId);
+
+  /// Release current provider and search for another → searching.
+  static Future<Map<String, dynamic>> searchAnother(String bookingId) =>
+      _bookingAction('search_another', bookingId);
+
+  /// Cancel (allowed before the job is active).
+  static Future<Map<String, dynamic>> cancelBooking(
+          String bookingId, String reason) =>
+      _bookingAction('cancel', bookingId, {'reason': reason});
+
+  /// Razorpay order for a completed, unpaid booking:
+  /// {order_id, amount (paise), currency, key_id, booking_id}
+  static Future<Map<String, dynamic>> createOrder(String bookingId) =>
+      _bookingAction('create_order', bookingId);
+
+  /// Verify Razorpay payment on the server and mark the booking paid.
+  static Future<Map<String, dynamic>> razorpayConfirm({
     required String bookingId,
-    required String providerId,
+    required String orderId,
+    required String paymentId,
+    required String signature,
+  }) =>
+      _bookingAction('razorpay_confirm', bookingId, {
+        'razorpay_order_id': orderId,
+        'razorpay_payment_id': paymentId,
+        'razorpay_signature': signature,
+      });
+
+  /// Rate a completed booking (once).
+  static Future<Map<String, dynamic>> submitReview({
+    required String bookingId,
     required int rating,
-    String comment = '',
-  }) async {
-    final res = await _post('reviews.php', {
-      'booking_id':  bookingId,
-      'provider_id': providerId,
-      'rating':      rating,
-      'comment':     comment,
-    }, params: {'action': 'submit'});
-    return res['success'] == true;
-  }
-
-  /// Complete booking after successful payment
-  static Future<bool> completeBooking({
-    required String bookingId,
-    String razorpayPaymentId = '',
-    String razorpayOrderId = '',
-  }) async {
-    final res = await _post('bookings.php', {
-      'booking_id':          bookingId,
-      'razorpay_payment_id': razorpayPaymentId,
-      'razorpay_order_id':   razorpayOrderId,
-    }, params: {'action': 'complete'});
-    return res['success'] == true;
-  }
+    String review = '',
+  }) =>
+      _bookingAction('review', bookingId, {'rating': rating, 'review': review});
 
   // ── LOCAL STORAGE (SharedPreferences) ───────────────────
 
-  static Future<void> saveCurrentUser(Map<String,dynamic> data) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('hs_customer', jsonEncode(data));
+  static Future<void> saveCurrentUser(Map<String, dynamic> data) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('hs_customer', jsonEncode(data));
+    } catch (_) {
+      // cache only — safe to ignore
+    }
   }
 
-  static Future<Map<String,dynamic>?> getCachedUser() async {
-    final prefs = await SharedPreferences.getInstance();
-    final s = prefs.getString('hs_customer');
-    if (s == null) return null;
-    return jsonDecode(s) as Map<String,dynamic>;
+  static Future<Map<String, dynamic>?> getCachedUser() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final s = prefs.getString('hs_customer');
+      if (s == null) return null;
+      return Map<String, dynamic>.from(jsonDecode(s) as Map);
+    } catch (_) {
+      return null;
+    }
   }
 
-  static Future<void> clearUser() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('hs_customer');
+  /// Remove everything this app stored locally (called on sign-out).
+  static Future<void> clearLocalData() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.clear();
+    } catch (_) {}
   }
-
 }

@@ -3,13 +3,12 @@ import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_messaging/firebase_messaging.dart';
-import 'package:firebase_database/firebase_database.dart';
-import '../../services/api_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../../services/api_service.dart';
+import '../../utils/booking_format.dart';
 import '../../utils/theme.dart';
-import '../../services/firebase_service.dart';
-import 'radar_screen.dart';
+import 'booking_status_screen.dart';
 
 class BookingFlowScreen extends StatefulWidget {
   final Map<String, dynamic> service;
@@ -28,14 +27,16 @@ class BookingFlowScreen extends StatefulWidget {
 class _BookingFlowScreenState extends State<BookingFlowScreen> {
   int _step = 0;
   DateTime _selectedDate = DateTime.now().add(const Duration(days: 1));
+  // ^ default tomorrow; today is allowed but past slots are disabled
   final _addressCtrl = TextEditingController();
   final _landmarkCtrl = TextEditingController();
   final _nameCtrl = TextEditingController();
   final _phoneCtrl = TextEditingController();
+  final _notesCtrl = TextEditingController();
   bool _loading = false;
-  bool _detectingLocation = false; // Always false - no re-fetch
   double? _customerLat;
   double? _customerLng;
+  String _city = '';
 
   final List<String> _timeSlots = [
     '07:00 AM','08:00 AM','09:00 AM','10:00 AM',
@@ -44,11 +45,34 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
   ];
   String _selectedSlot = '09:00 AM';
 
+  static bool _sameDay(DateTime a, DateTime b) =>
+      a.year == b.year && a.month == b.month && a.day == b.day;
+
+  /// Start time of a slot like '09:00 AM' on [day].
+  static DateTime _slotStart(DateTime day, String slot) {
+    final m = RegExp(r'^(\d{1,2}):(\d{2})\s*(AM|PM)$').firstMatch(slot.trim());
+    if (m == null) return DateTime(day.year, day.month, day.day);
+    var h = int.parse(m.group(1)!) % 12;
+    if (m.group(3) == 'PM') h += 12;
+    return DateTime(day.year, day.month, day.day, h, int.parse(m.group(2)!));
+  }
+
+  /// A slot is selectable if it starts at least 30 minutes from now.
+  bool _slotAvailable(String slot) {
+    if (!_sameDay(_selectedDate, DateTime.now())) return true;
+    return _slotStart(_selectedDate, slot)
+        .isAfter(DateTime.now().add(const Duration(minutes: 30)));
+  }
+
+  void _fixSelectedSlot() {
+    if (_selectedSlot.isNotEmpty && _slotAvailable(_selectedSlot)) return;
+    _selectedSlot = _timeSlots.firstWhere(_slotAvailable, orElse: () => '');
+  }
+
   @override
   void initState() {
     super.initState();
-    _loadNamePhone();
-    _loadSavedLocation(); // Use saved location, no GPS re-fetch
+    _loadProfile();
   }
 
   @override
@@ -57,42 +81,45 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
     _landmarkCtrl.dispose();
     _nameCtrl.dispose();
     _phoneCtrl.dispose();
+    _notesCtrl.dispose();
     super.dispose();
   }
 
-  Future<void> _loadSavedLocation() async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    // 1. Try saved profile first
-    if (uid != null) {
-      try {
-        final profile = await ApiService.getCustomer(uid);
-        if (profile != null) {
-          final lat = (profile['lat'] as num?)?.toDouble();
-          final lng = (profile['lng'] as num?)?.toDouble();
-          final savedAddress = profile['address']?.toString() ?? '';
-          final city = profile['city']?.toString() ?? '';
-          if (mounted) {
-            setState(() {
-              if (lat != null && lng != null && lat != 0 && lng != 0) {
-                _customerLat = lat;
-                _customerLng = lng;
-              }
-              if (_addressCtrl.text.isEmpty) {
-                if (savedAddress.isNotEmpty) {
-                  _addressCtrl.text = savedAddress;
-                } else if (city.isNotEmpty) {
-                  _addressCtrl.text = city;
-                }
-              }
-            });
+  Future<void> _loadProfile() async {
+    final user = FirebaseAuth.instance.currentUser;
+    _nameCtrl.text = user?.displayName ?? '';
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _city = prefs.getString('user_city') ?? '';
+    } catch (_) {}
+    try {
+      final profile = await ApiService.getCustomer();
+      if (profile != null && mounted) {
+        final lat = asDouble(profile['lat']);
+        final lng = asDouble(profile['lng']);
+        final savedAddress = asStr(profile['address']);
+        final city = asStr(profile['city']);
+        setState(() {
+          if (lat != null && lng != null && lat != 0 && lng != 0) {
+            _customerLat = lat;
+            _customerLng = lng;
           }
-        }
-      } catch (e) {}
+          if (city.isNotEmpty) _city = city;
+          if (_addressCtrl.text.isEmpty) {
+            _addressCtrl.text = savedAddress.isNotEmpty ? savedAddress : city;
+          }
+          if (_nameCtrl.text.isEmpty) _nameCtrl.text = asStr(profile['name']);
+          if (_phoneCtrl.text.isEmpty) _phoneCtrl.text = asStr(profile['phone']);
+        });
+      }
+    } on ApiException catch (e) {
+      debugPrint('Profile load failed: ${e.message}');
     }
-    // 2. If still no location — capture GPS right now
-    if (_customerLat == null) {
-      await _captureGPS();
+    if (_phoneCtrl.text.isEmpty) {
+      _phoneCtrl.text = normalizeIndianMobile(user?.phoneNumber ?? '');
     }
+    // No saved coordinates — capture GPS now
+    if (_customerLat == null) await _captureGPS();
   }
 
   Future<void> _captureGPS() async {
@@ -109,6 +136,7 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
           timeLimit: const Duration(seconds: 10));
 
       String addr = '';
+      String city = '';
       try {
         final placemarks = await placemarkFromCoordinates(
             pos.latitude, pos.longitude);
@@ -118,42 +146,34 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
               .whereType<String>()
               .where((s) => s.isNotEmpty)
               .join(', ');
+          city = p.locality ?? p.subAdministrativeArea ?? '';
         }
-      } catch (_) {}
+      } catch (_) {
+        // reverse geocoding is optional
+      }
 
       if (mounted) {
         setState(() {
           _customerLat = pos.latitude;
           _customerLng = pos.longitude;
+          if (city.isNotEmpty && _city.isEmpty) _city = city;
           if (_addressCtrl.text.isEmpty && addr.isNotEmpty) {
             _addressCtrl.text = addr;
           }
         });
       }
-      // Save to profile for next time
-      final uid = FirebaseAuth.instance.currentUser?.uid;
-      if (uid != null) {
-        try {
-          await ApiService.updateCustomer({
-            'lat': pos.latitude, 'lng': pos.longitude,
-          });
-        } catch (_) {}
+      // Save to profile for next time (best effort)
+      try {
+        await ApiService.updateCustomer({
+          'lat': pos.latitude, 'lng': pos.longitude,
+          if (city.isNotEmpty) 'city': city,
+        });
+      } on ApiException catch (e) {
+        debugPrint('Saving location failed: ${e.message}');
       }
     } catch (e) {
       debugPrint('GPS capture failed: $e');
     }
-  }
-
-  Future<void> _loadNamePhone() async {
-    final user = FirebaseAuth.instance.currentUser;
-    _nameCtrl.text = user?.displayName ?? '';
-    try {
-      final profile = await ApiService.getCustomer(user?.uid ?? '');
-      if (profile != null) {
-        if (_nameCtrl.text.isEmpty) _nameCtrl.text = profile['name'] ?? '';
-        _phoneCtrl.text = profile['phone'] ?? user?.phoneNumber ?? '';
-      }
-    } catch (e) {}
   }
 
   void _openMapView() {
@@ -163,66 +183,104 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
         'https://www.google.com/maps/search/?api=1&query=$_customerLat,$_customerLng'));
   }
 
+  String get _slotDate =>
+      '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}';
+
+  bool _validateStep(int step) {
+    if (step == 0) {
+      if (_selectedSlot.isEmpty || !_slotAvailable(_selectedSlot)) {
+        _showError('Please pick an available time slot');
+        return false;
+      }
+    } else if (step == 1) {
+      if (_addressCtrl.text.trim().isEmpty) {
+        _showError('Please enter your address'); return false;
+      }
+      if (_landmarkCtrl.text.trim().isEmpty) {
+        _showError('Landmark is required — helps provider find you'); return false;
+      }
+      if (_nameCtrl.text.trim().isEmpty) {
+        _showError('Please enter your name'); return false;
+      }
+      if (!isValidIndianMobile(_phoneCtrl.text)) {
+        _showError('Please enter a valid 10-digit Indian mobile number'); return false;
+      }
+    }
+    return true;
+  }
+
   Future<void> _confirmBooking() async {
     HapticFeedback.mediumImpact();
-    if (_addressCtrl.text.trim().isEmpty) {
-      _showError('Please enter your address'); return;
-    }
-    if (_landmarkCtrl.text.trim().isEmpty) {
-      _showError('Landmark is required — helps provider find you'); return;
-    }
-    if (_nameCtrl.text.trim().isEmpty || _phoneCtrl.text.trim().isEmpty) {
-      _showError('Please enter your name and mobile number'); return;
-    }
-    if (_phoneCtrl.text.trim().length < 10) {
-      _showError('Please enter a valid 10-digit mobile number'); return;
-    }
+    if (!_validateStep(0)) { setState(() => _step = 0); return; }
+    if (!_validateStep(1)) { setState(() => _step = 1); return; }
+    final phone = normalizeIndianMobile(_phoneCtrl.text);
 
     setState(() => _loading = true);
     try {
-      final user = FirebaseAuth.instance.currentUser;
-      // Get customer FCM token to include in booking
-      String customerFcmToken = '';
-      try {
-        final token = await FirebaseMessaging.instance.getToken();
-        customerFcmToken = token ?? '';
-      } catch (_) {}
+      // The server requires a customer profile before booking (412).
+      await ApiService.ensureCustomerProfile(
+          name: _nameCtrl.text.trim(), phone: phone);
 
-      final bookingId = await FirebaseService.createBooking({
-        'customerFcmToken': customerFcmToken,
-        'service': widget.service['name'],
-        'svcId': widget.service['id'],
-        'icon': widget.service['icon'],
-        'price': widget.basePrice,
-        'priceVal': widget.basePrice,
-        'date': '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2,'0')}-${_selectedDate.day.toString().padLeft(2,'0')}',
-        'time': _selectedSlot,
-        'address': _addressCtrl.text.trim(),
-        'landmark': _landmarkCtrl.text.trim(),
-        'customer': _nameCtrl.text.trim(),
-        'phone': _phoneCtrl.text.trim(),
-        'customerId': user?.uid ?? '',
-        'customerEmail': user?.email ?? '',
-        'status': 'searching',
-        'lat': _customerLat ?? 0.0,
-        'lng': _customerLng ?? 0.0,
-        'summary': widget.summary.isNotEmpty ? widget.summary : ['${widget.service['name']} > Service booking'],
-      });
-      if (mounted) {
-        Navigator.pushReplacement(context, MaterialPageRoute(
-          builder: (_) => RadarScreen(
-            bookingId: bookingId, service: widget.service,
-            date: _selectedDate, timeSlot: _selectedSlot,
-            address: _addressCtrl.text.trim(), price: widget.basePrice,
-            lat: _customerLat, lng: _customerLng)));
-      }
-    } catch (e) {
+      final summary = widget.summary.isNotEmpty
+          ? widget.summary
+          : ['${widget.service['name']} > Service booking'];
+      final bookingId = await ApiService.createBooking(
+        svcId:        asStr(widget.service['id']),
+        svcName:      asStr(widget.service['name']),
+        svcIcon:      asStr(widget.service['icon']),
+        address:      _addressCtrl.text.trim(),
+        landmark:     _landmarkCtrl.text.trim(),
+        city:         _city,
+        lat:          _customerLat ?? 0,
+        lng:          _customerLng ?? 0,
+        slotDate:     _slotDate,
+        slotTime:     _selectedSlot,
+        notes:        _notesCtrl.text.trim(),
+        contactName:  _nameCtrl.text.trim(),
+        contactPhone: phone,
+        estPrice:     widget.basePrice,
+        summary:      summary,
+      );
+      if (!mounted) return;
+      Navigator.pushReplacement(context, MaterialPageRoute(
+        builder: (_) => BookingStatusScreen(bookingId: bookingId)));
+    } on ApiException catch (e) {
+      if (!mounted) return;
       setState(() => _loading = false);
-      _showError('Booking failed. Please try again.');
+      if (e.statusCode == 409) {
+        _showActiveBookingDialog(e.message);
+      } else {
+        _showError(e.message);
+      }
+    }
+  }
+
+  Future<void> _showActiveBookingDialog(String message) async {
+    final view = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('You already have a booking'),
+        content: Text('$message\n\nFinish or cancel it before booking another service.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Close')),
+          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('View booking')),
+        ],
+      ),
+    );
+    if (view != true || !mounted) return;
+    try {
+      final active = await ApiService.getActiveBooking();
+      final id = asStr(active?['id']);
+      if (id.isEmpty || !mounted) return;
+      Navigator.pushReplacement(context, MaterialPageRoute(
+        builder: (_) => BookingStatusScreen(bookingId: id)));
+    } on ApiException catch (e) {
+      _showError(e.message);
     }
   }
 
   void _showError(String msg) {
+    if (!mounted) return;
     HapticFeedback.heavyImpact();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(msg), backgroundColor: AppColors.red));
@@ -263,7 +321,11 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
             Expanded(child: ElevatedButton(
               onPressed: _loading ? null : () {
                 HapticFeedback.mediumImpact();
-                if (_step < 2) setState(() => _step++); else _confirmBooking();
+                if (_step < 2) {
+                  if (_validateStep(_step)) setState(() => _step++);
+                } else {
+                  _confirmBooking();
+                }
               },
               style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 52),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
@@ -288,24 +350,36 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
           initialDate: _selectedDate,
           firstDate: DateTime.now(),
           lastDate: DateTime.now().add(const Duration(days: 60)),
-          onDateChanged: (d) { HapticFeedback.selectionClick(); setState(() => _selectedDate = d); })),
+          onDateChanged: (d) {
+            HapticFeedback.selectionClick();
+            setState(() { _selectedDate = d; _fixSelectedSlot(); });
+          })),
       const SizedBox(height: 20),
       const Text('Select Time Slot', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.ink)),
       const SizedBox(height: 12),
       Wrap(spacing: 10, runSpacing: 10,
         children: _timeSlots.map((slot) {
-          final sel = slot == _selectedSlot;
+          final available = _slotAvailable(slot);
+          final sel = available && slot == _selectedSlot;
           return GestureDetector(
-            onTap: () { HapticFeedback.selectionClick(); setState(() => _selectedSlot = slot); },
+            onTap: available
+                ? () { HapticFeedback.selectionClick(); setState(() => _selectedSlot = slot); }
+                : null,
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
               decoration: BoxDecoration(
-                color: sel ? AppColors.teal : Colors.white,
+                color: sel ? AppColors.teal : (available ? Colors.white : AppColors.line.withOpacity(0.5)),
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(color: sel ? AppColors.teal : AppColors.line)),
               child: Text(slot, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600,
-                color: sel ? Colors.white : AppColors.ink2))));
+                color: sel ? Colors.white : (available ? AppColors.ink2 : AppColors.muted),
+                decoration: available ? null : TextDecoration.lineThrough))));
         }).toList()),
+      if (!_timeSlots.any(_slotAvailable)) ...[
+        const SizedBox(height: 10),
+        const Text('No slots left for today — please pick another date.',
+          style: TextStyle(fontSize: 12, color: AppColors.red, fontWeight: FontWeight.w600)),
+      ],
     ]);
   }
 
@@ -326,7 +400,7 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
               color: _customerLat != null ? AppColors.green : AppColors.yellow, size: 20),
           const SizedBox(width: 10),
           Expanded(child: Text(
-            _customerLat != null ? 'GPS location loaded ✓' : 'Location not set — go to Home to enable',
+            _customerLat != null ? 'GPS location loaded ✓' : 'Location not detected — enter your address below',
             style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600,
               color: _customerLat != null ? AppColors.green : AppColors.yellow))),
           if (_customerLat != null)
@@ -397,6 +471,16 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
           filled: true,
           fillColor: AppColors.bg)),
+
+      const SizedBox(height: 14),
+      _label('NOTES FOR PROVIDER (OPTIONAL)'),
+      const SizedBox(height: 6),
+      TextField(
+        controller: _notesCtrl,
+        maxLines: 2,
+        decoration: InputDecoration(
+          hintText: 'Anything the provider should know',
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)))),
     ]);
   }
 
@@ -411,13 +495,12 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
         child: Row(children: [
           Container(width: 52, height: 52,
             decoration: BoxDecoration(color: Color(widget.service['color'] != null ? widget.service['color'] as int : 0xFF1B6B7A), borderRadius: BorderRadius.circular(12)),
-            child: Center(child: Text(widget.service['icon'] as String, style: const TextStyle(fontSize: 28)))),
+            child: Center(child: Text(asStr(widget.service['icon']), style: const TextStyle(fontSize: 28)))),
           const SizedBox(width: 14),
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(widget.service['name'] as String, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.ink)),
-            Text(widget.service['cat'] as String, style: const TextStyle(fontSize: 12, color: AppColors.muted)),
+            Text(asStr(widget.service['name']), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.ink)),
+            Text(asStr(widget.service['cat']), style: const TextStyle(fontSize: 12, color: AppColors.muted)),
           ])),
-          Text('Rs.${widget.basePrice}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: AppColors.teal)),
         ])),
       const SizedBox(height: 12),
       _infoCard(Icons.calendar_today_rounded, 'Date & Time', '${_selectedDate.day}/${_selectedDate.month}/${_selectedDate.year} at $_selectedSlot'),
@@ -454,11 +537,13 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
         decoration: BoxDecoration(color: AppColors.tealSoft, borderRadius: BorderRadius.circular(14),
           border: Border.all(color: AppColors.teal.withOpacity(0.3))),
         child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-          const Text('Total Amount', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.teal)),
-          Text('Rs.${widget.basePrice}', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: AppColors.teal)),
+          const Text('Estimated price', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.teal)),
+          Text(widget.basePrice > 0 ? '₹${widget.basePrice}' : 'Quoted by provider',
+            style: TextStyle(fontSize: widget.basePrice > 0 ? 24 : 15, fontWeight: FontWeight.w800, color: AppColors.teal)),
         ])),
       const SizedBox(height: 8),
-      const Text('Payment collected after service completion.', style: TextStyle(fontSize: 12, color: AppColors.muted)),
+      const Text('Nothing is charged now. A provider will quote the final price, which you accept in the app before work starts. You pay after the service is completed.',
+        style: TextStyle(fontSize: 12, color: AppColors.muted, height: 1.4)),
     ]);
   }
 

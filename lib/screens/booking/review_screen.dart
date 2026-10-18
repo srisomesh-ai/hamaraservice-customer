@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_database/firebase_database.dart';
 import '../../services/api_service.dart';
+import '../../utils/booking_format.dart';
 import '../../utils/theme.dart';
 import '../home_screen.dart';
 
@@ -36,26 +35,23 @@ class _ReviewScreenState extends State<ReviewScreen> {
       return;
     }
     setState(() => _submitting = true);
+    // Quick chips + free text are both sent as the review text.
+    final parts = <String>[
+      ..._selectedQuick,
+      if (_commentCtrl.text.trim().isNotEmpty) _commentCtrl.text.trim(),
+    ];
     try {
-      final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
-      final provId = widget.booking['providerId'] ?? '';
-      final comment = _commentCtrl.text.trim().isNotEmpty
-          ? _commentCtrl.text.trim()
-          : _selectedQuick.join(', ');
-
-      // Submit review to MySQL — auto updates provider rating
       await ApiService.submitReview(
-        bookingId:  widget.bookingId,
-        providerId: provId,
-        rating:     _rating,
-        comment:    _commentCtrl.text.trim(),
+        bookingId: widget.bookingId,
+        rating:    _rating,
+        review:    parts.join('. '),
       );
-
-      setState(() { _submitting = false; _submitted = true; });
-    } catch (e) {
+      if (mounted) setState(() { _submitting = false; _submitted = true; });
+    } on ApiException catch (e) {
+      if (!mounted) return;
       setState(() => _submitting = false);
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e'), backgroundColor: AppColors.red));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.message), backgroundColor: AppColors.red));
     }
   }
 
@@ -89,14 +85,14 @@ class _ReviewScreenState extends State<ReviewScreen> {
                     color: AppColors.tealSoft,
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: Center(child: Text(widget.booking['icon'] ?? '🔧',
+                  child: Center(child: Text(asStr(widget.booking['svc_icon']).isEmpty ? '🔧' : asStr(widget.booking['svc_icon']),
                     style: const TextStyle(fontSize: 26))),
                 ),
                 const SizedBox(width: 14),
                 Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(widget.booking['service'] ?? 'Service',
+                  Text(asStr(widget.booking['svc_name']).isEmpty ? 'Service' : asStr(widget.booking['svc_name']),
                     style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.ink)),
-                  Text('Provider: ${widget.booking['providerName'] ?? ''}',
+                  Text('Provider: ${asStr(widget.booking['provider_name'] ?? widget.booking['other_party'])}',
                     style: const TextStyle(fontSize: 12, color: AppColors.muted)),
                 ])),
                 Container(
@@ -152,8 +148,11 @@ class _ReviewScreenState extends State<ReviewScreen> {
                 final sel = _selectedQuick.contains(q);
                 return GestureDetector(
                   onTap: () => setState(() {
-                    if (sel) _selectedQuick.remove(q);
-                    else _selectedQuick.add(q);
+                    if (sel) {
+                      _selectedQuick.remove(q);
+                    } else {
+                      _selectedQuick.add(q);
+                    }
                   }),
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -239,7 +238,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
                 const SizedBox(height: 24),
                 const Text('Thank You!', style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800, color: AppColors.ink)),
                 const SizedBox(height: 8),
-                const Text('Your review helps us improve\nand rewards our providers.',
+                const Text('Your review helps other customers\nand your provider.',
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 14, color: AppColors.muted, height: 1.5)),
                 const SizedBox(height: 32),

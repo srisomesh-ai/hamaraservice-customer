@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_database/firebase_database.dart';
 import '../../services/api_service.dart';
-import '../../utils/theme.dart';
 import '../../services/firebase_service.dart';
+import '../../utils/booking_format.dart';
+import '../../utils/theme.dart';
 import '../login_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -36,24 +36,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
       setState(() => _loading = false);
       return;
     }
+    // Pre-fill from Firebase Auth
+    _nameCtrl.text  = _user?.displayName ?? '';
+    _phoneCtrl.text = normalizeIndianMobile(_user?.phoneNumber ?? '');
     try {
-      // Pre-fill from Firebase Auth
-      _nameCtrl.text  = _user?.displayName ?? '';
-      _phoneCtrl.text = _user?.phoneNumber ?? '';
-
-      // Load extra profile data from Realtime DB
-      final data = await ApiService.getCustomer(uid);
+      final data = await ApiService.getCustomer();
       if (data != null) {
-        _nameCtrl.text    = data['name']    ?? _nameCtrl.text;
-        _phoneCtrl.text   = data['phone']   ?? _phoneCtrl.text;
-        _addressCtrl.text = data['address'] ?? '';
-        _cityCtrl.text    = data['city']    ?? '';
-        _gender           = data['gender']  ?? 'male';
+        if (asStr(data['name']).isNotEmpty) _nameCtrl.text = asStr(data['name']);
+        if (asStr(data['phone']).isNotEmpty) _phoneCtrl.text = asStr(data['phone']);
+        _addressCtrl.text = asStr(data['address']);
+        _cityCtrl.text    = asStr(data['city']);
+        final g = asStr(data['gender']).toLowerCase();
+        _gender = ['male', 'female', 'other'].contains(g) ? g : 'male';
       }
-    } catch (e) {
-      // ignore
+    } on ApiException catch (e) {
+      if (mounted) _showSnack('Could not load profile: ${e.message}', AppColors.red);
     }
-    setState(() => _loading = false);
+    if (mounted) setState(() => _loading = false);
   }
 
   Future<void> _saveProfile() async {
@@ -61,33 +60,39 @@ class _ProfileScreenState extends State<ProfileScreen> {
       _showSnack('Please enter your name', AppColors.red);
       return;
     }
+    final phone = normalizeIndianMobile(_phoneCtrl.text);
+    if (phone.isNotEmpty && !indianMobileRegex.hasMatch(phone)) {
+      _showSnack('Enter a valid 10-digit Indian mobile number', AppColors.red);
+      return;
+    }
+    if (_user == null) return;
     setState(() => _saving = true);
     try {
-      final uid = _user?.uid;
-      if (uid == null) return;
-
-      // Update Firebase Auth display name
-      await _user?.updateDisplayName(_nameCtrl.text.trim());
-
-      // Save to Realtime DB
-      await ApiService.updateCustomer({
-        'name':      _nameCtrl.text.trim(),
-        'phone':     _phoneCtrl.text.trim(),
-        'address':   _addressCtrl.text.trim(),
-        'city':      _cityCtrl.text.trim(),
-        'gender':    _gender,
-        'email':     _user?.email ?? '',
-        'updatedAt': DateTime.now().toIso8601String(),
-      });
-
+      try {
+        await _user?.updateDisplayName(_nameCtrl.text.trim());
+      } catch (_) {
+        // display name is cosmetic; the API profile is the source of truth
+      }
+      // registerCustomer upserts, so this also works if the row is missing
+      await ApiService.registerCustomer(
+        name:    _nameCtrl.text.trim(),
+        phone:   phone,
+        email:   _user?.email ?? '',
+        address: _addressCtrl.text.trim(),
+        city:    _cityCtrl.text.trim(),
+        gender:  _gender,
+        authMethod: (_user?.providerData.any((p) => p.providerId == 'google.com') ?? false)
+            ? 'google' : 'email',
+      );
       _showSnack('Profile saved successfully!', AppColors.green);
-    } catch (e) {
-      _showSnack('Failed to save. Please try again.', AppColors.red);
+    } on ApiException catch (e) {
+      _showSnack('Failed to save: ${e.message}', AppColors.red);
     }
-    setState(() => _saving = false);
+    if (mounted) setState(() => _saving = false);
   }
 
   void _showSnack(String msg, Color color) {
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(msg), backgroundColor: color, behavior: SnackBarBehavior.floating));
   }
@@ -131,6 +136,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     await Navigator.push(context,
                       MaterialPageRoute(builder: (_) => const LoginScreen()));
                     // Refresh after returning from login
+                    if (!mounted) return;
                     setState(() {
                       _user = FirebaseAuth.instance.currentUser;
                     });
@@ -282,8 +288,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
             width: double.infinity,
             child: OutlinedButton(
               onPressed: () async {
-                await FirebaseService.signOut();
-                if (mounted) Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const LoginScreen()));
+                await FirebaseService.signOut(); // also clears local prefs
+                if (!mounted) return;
+                Navigator.pushAndRemoveUntil(context,
+                    MaterialPageRoute(builder: (_) => const LoginScreen()), (r) => false);
               },
               style: OutlinedButton.styleFrom(
                 minimumSize: const Size(double.infinity, 52),

@@ -1,4 +1,4 @@
-name: Build APK
+name: Build APK / AAB
 
 on:
   push:
@@ -26,7 +26,7 @@ jobs:
 
       - name: Create asset directories
         run: mkdir -p assets/icons assets/animations assets/fonts
-        
+
       - name: Create local.properties
         run: |
           FLUTTER_PATH=$(dirname $(which flutter))
@@ -57,14 +57,41 @@ jobs:
           distributionUrl=https\://services.gradle.org/distributions/gradle-8.0-all.zip
           GRADLEEOF
 
+      - name: Release signing (keystore from secrets)
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ] && [ -n "$KEYSTORE_PASSWORD" ] && [ -n "$KEY_ALIAS" ] && [ -n "$KEY_PASSWORD" ]; then
+            echo "$KEYSTORE_BASE64" | base64 --decode > android/app/upload-keystore.jks
+            {
+              echo "storeFile=upload-keystore.jks"
+              echo "storePassword=$KEYSTORE_PASSWORD"
+              echo "keyAlias=$KEY_ALIAS"
+              echo "keyPassword=$KEY_PASSWORD"
+            } > android/key.properties
+            echo "Release keystore configured."
+          else
+            echo "::warning::Signing secrets not set - release builds use the DEBUG key and cannot be uploaded to Play."
+          fi
+
       - name: Get dependencies
         run: flutter pub get
-        
+
+      - name: Analyze
+        run: flutter analyze --no-fatal-infos
+        continue-on-error: true
+
       - name: Generate app icons
         run: flutter pub run flutter_launcher_icons
 
       - name: Build APK
-        run: flutter build apk --release --no-tree-shake-icons
+        run: flutter build apk --release --no-tree-shake-icons --build-number=${{ github.run_number }}
+
+      - name: Build App Bundle (AAB)
+        run: flutter build appbundle --release --no-tree-shake-icons --build-number=${{ github.run_number }}
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
@@ -72,3 +99,14 @@ jobs:
           name: hamaraservice-customer-apk
           path: build/app/outputs/flutter-apk/app-release.apk
           retention-days: 30
+
+      - name: Upload AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: hamaraservice-customer-aab
+          path: build/app/outputs/bundle/release/app-release.aab
+          retention-days: 30
+
+      - name: Remove signing material
+        if: always()
+        run: rm -f android/app/upload-keystore.jks android/key.properties

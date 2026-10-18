@@ -1,8 +1,7 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_database/firebase_database.dart';
 import '../../services/api_service.dart';
+import '../../utils/booking_format.dart';
 import '../../utils/theme.dart';
 
 class CancelledBookingsScreen extends StatefulWidget {
@@ -14,68 +13,72 @@ class CancelledBookingsScreen extends StatefulWidget {
 class _CancelledBookingsScreenState extends State<CancelledBookingsScreen> {
   List<Map<String, dynamic>> _bookings = [];
   bool _loading = true;
-  StreamSubscription? _listener;
+  String _error = '';
 
   @override
   void initState() {
     super.initState();
-    _listen();
+    _load();
   }
 
-  @override
-  void dispose() {
-    _listener?.cancel();
-    super.dispose();
-  }
-
-  void _listen() {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) return;
-    _loadBookings(uid);
-  }
-
-  Future<void> _loadBookings(String uid) async {
-    try {
-      final list = await ApiService.getCustomerBookings(uid);
-      final filtered = list.where((b) =>
-        b['status']?.toString() == 'cancelled'
-      ).toList();
-      if (mounted) setState(() {{ _bookings = filtered; _loading = false; }});
-    } catch (_) {
+  Future<void> _load() async {
+    if (FirebaseAuth.instance.currentUser == null) {
       if (mounted) setState(() => _loading = false);
+      return;
+    }
+    try {
+      final list = await ApiService.getBookingHistory();
+      if (mounted) {
+        setState(() {
+          _bookings = list
+              .where((b) => asStr(b['status']) == BookingStatus.cancelled)
+              .toList();
+          _loading = false;
+          _error = '';
+        });
+      }
+    } on ApiException catch (e) {
+      if (mounted) setState(() { _loading = false; _error = e.message; });
     }
   }
 
   @override
   Widget build(BuildContext context) {
     if (_loading) return const Center(child: CircularProgressIndicator(color: AppColors.teal));
-    if (_bookings.isEmpty) {
-      return Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-        Container(width: 80, height: 80,
-          decoration: BoxDecoration(color: AppColors.red.withOpacity(0.08), shape: BoxShape.circle),
-          child: const Icon(Icons.cancel_rounded, size: 40, color: AppColors.red)),
-        const SizedBox(height: 16),
-        const Text('No Cancelled Bookings',
-          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.ink)),
-        const SizedBox(height: 8),
-        const Text('Cancelled jobs will appear here',
-          style: TextStyle(color: AppColors.muted, fontSize: 13)),
-      ]));
-    }
     return RefreshIndicator(
-      onRefresh: () async => _listen(),
+      onRefresh: _load,
       color: AppColors.teal,
-      child: ListView.builder(
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(16),
-        itemCount: _bookings.length,
-        itemBuilder: (_, i) => _card(_bookings[i])));
+        children: [
+          if (_error.isNotEmpty)
+            Text(_error, style: const TextStyle(color: AppColors.red, fontSize: 12)),
+          if (_bookings.isEmpty && _error.isEmpty)
+            SizedBox(
+              height: 420,
+              child: Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                Container(width: 80, height: 80,
+                  decoration: BoxDecoration(color: AppColors.red.withOpacity(0.08), shape: BoxShape.circle),
+                  child: const Icon(Icons.cancel_rounded, size: 40, color: AppColors.red)),
+                const SizedBox(height: 16),
+                const Text('No Cancelled Bookings',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.ink)),
+                const SizedBox(height: 8),
+                const Text('Cancelled jobs will appear here',
+                  style: TextStyle(color: AppColors.muted, fontSize: 13)),
+              ])),
+            ),
+          ..._bookings.map(_card),
+        ],
+      ),
+    );
   }
 
   Widget _card(Map<String, dynamic> b) {
-    final id = (b['id'] ?? '').toString();
-    final shortId = id.replaceAll('-','').length > 8
-        ? id.replaceAll('-','').substring(0,8).toUpperCase() : id.toUpperCase();
-    final penalty = int.tryParse(b['penalty']?.toString() ?? '0') ?? 0;
+    final reason = asStr(b['cancel_reason']);
+    final by = asStr(b['cancelled_by']);
+    final price = bookingPrice(b);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
@@ -86,12 +89,14 @@ class _CancelledBookingsScreenState extends State<CancelledBookingsScreen> {
           decoration: BoxDecoration(color: AppColors.red.withOpacity(0.06),
             borderRadius: const BorderRadius.vertical(top: Radius.circular(16))),
           child: Row(children: [
-            Text(b['icon'] ?? '🔧', style: const TextStyle(fontSize: 26)),
+            Text(asStr(b['svc_icon']).isEmpty ? '🔧' : asStr(b['svc_icon']),
+                style: const TextStyle(fontSize: 26)),
             const SizedBox(width: 10),
             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(b['service'] ?? 'Service',
+              Text(asStr(b['svc_name']).isEmpty ? 'Service' : asStr(b['svc_name']),
                 style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.ink)),
-              Text('ID: $shortId', style: const TextStyle(fontSize: 10, color: AppColors.muted)),
+              Text('ID: ${shortBookingId(asStr(b['id']))}',
+                  style: const TextStyle(fontSize: 10, color: AppColors.muted)),
             ])),
             Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
               decoration: BoxDecoration(color: AppColors.red.withOpacity(0.12),
@@ -101,27 +106,20 @@ class _CancelledBookingsScreenState extends State<CancelledBookingsScreen> {
           ])),
         Padding(padding: const EdgeInsets.all(14), child: Column(
           crossAxisAlignment: CrossAxisAlignment.start, children: [
-          _row(Icons.calendar_today_rounded, '${b['date'] ?? ''} at ${b['time'] ?? ''}'),
+          _row(Icons.calendar_today_rounded, slotLabel(b)),
           const SizedBox(height: 5),
-          _row(Icons.location_on_rounded, b['address'] ?? ''),
-          const SizedBox(height: 5),
-          _row(Icons.currency_rupee_rounded, 'Rs.${b['price'] ?? b['priceVal'] ?? 0}'),
-          if ((b['cancelReason'] ?? '').toString().isNotEmpty) ...[
+          _row(Icons.location_on_rounded, asStr(b['address'])),
+          if (price > 0) ...[
             const SizedBox(height: 5),
-            _row(Icons.info_outline_rounded, 'Reason: ${b['cancelReason']}'),
+            _row(Icons.currency_rupee_rounded, '₹$price'),
           ],
-          if (penalty > 0) ...[
-            const SizedBox(height: 8),
-            Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-              decoration: BoxDecoration(color: AppColors.red.withOpacity(0.07),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: AppColors.red.withOpacity(0.2))),
-              child: Row(children: [
-                const Icon(Icons.warning_amber_rounded, color: AppColors.red, size: 14),
-                const SizedBox(width: 6),
-                Text('Rs.$penalty penalty was applied',
-                  style: const TextStyle(fontSize: 11, color: AppColors.red, fontWeight: FontWeight.w600)),
-              ])),
+          if (by.isNotEmpty) ...[
+            const SizedBox(height: 5),
+            _row(Icons.person_off_rounded, 'Cancelled by $by'),
+          ],
+          if (reason.isNotEmpty) ...[
+            const SizedBox(height: 5),
+            _row(Icons.info_outline_rounded, 'Reason: $reason'),
           ],
         ])),
       ]),

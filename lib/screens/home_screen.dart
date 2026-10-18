@@ -2,23 +2,20 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_database/firebase_database.dart';
-import '../services/api_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
+import '../services/api_service.dart';
+import '../services/notification_service.dart';
+import '../utils/booking_format.dart';
 import '../utils/theme.dart';
-import 'test_console_screen.dart';
-import 'login_screen.dart';
 import 'location_screen.dart';
-import 'booking/service_detail_screen.dart';
 import 'services/service_screen.dart';
+import 'booking/booking_status_screen.dart';
 import 'dashboard/my_bookings_screen.dart';
-import 'dashboard/booking_history_screen.dart';
 import 'dashboard/profile_screen.dart';
 import 'dashboard/completed_bookings_screen.dart';
 import 'dashboard/cancelled_bookings_screen.dart';
-import 'booking/payment_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -26,25 +23,21 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMixin {
+class _HomeScreenState extends State<HomeScreen>
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   int _currentIndex = 0;
   late TabController _bookingTabCtrl;
   final _searchCtrl = TextEditingController();
   String _searchQuery = '';
   String _city = 'Your City';
   Map<String, Map<String,int>> _providerPriceRanges = {}; // svcId → {min, max}
-  int _testTapCount = 0;
-  DateTime? _lastTap;
   User? _user;
   int _selectedCat = 0;
 
-  // App-level OTP listener — fires regardless of which tab is active
-  StreamSubscription? _appOtpListener;
-  bool _showAppOtpPopup = false;
-  String _appOtpCode = '';
-  String _appOtpService = '';
-  String _appOtpBookingId = '';
-  Map<String, dynamic> _appOtpBooking = {};
+  // Active booking banner (bookings.php?action=active)
+  Map<String, dynamic>? _activeBooking;
+  Timer? _activeTimer;
+  bool _activeLoading = false;
 
   final List<Map<String, dynamic>> _categories = [
     {'icon': '🏠', 'label': 'All'},
@@ -57,9 +50,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   ];
 
   final List<Map<String, dynamic>> _banners = [
-    {'color': 0xFF0D3D47, 'title': '₹100 OFF', 'sub': 'On your first booking', 'emoji': '🎉', 'code': 'FIRST100'},
-    {'color': 0xFFB84600, 'title': 'Deep Clean', 'sub': 'Starting ₹499 only', 'emoji': '🧽', 'code': ''},
-    {'color': 0xFF1a4d2e, 'title': 'AC Service', 'sub': 'Summer special offer', 'emoji': '❄️', 'code': 'AC50'},
+    {'color': 0xFF0D3D47, 'title': 'Price first', 'sub': 'Accept the provider\'s quote before work starts', 'emoji': '🤝', 'code': ''},
+    {'color': 0xFFB84600, 'title': 'Pay after service', 'sub': 'Online or cash — nothing charged upfront', 'emoji': '💳', 'code': ''},
+    {'color': 0xFF1a4d2e, 'title': 'OTP protected', 'sub': 'Start and finish the job with an OTP', 'emoji': '🔐', 'code': ''},
   ];
 
   final List<Map<String, dynamic>> _services = [
@@ -70,7 +63,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     {'id':'SVC005','icon':'🛋️','name':'Sofa / Carpet','cat':'Cleaning','color':0xFFE0F7FA,'popular':true,'img':'assets/images/sofa-carpet-cleaning.jpg'},
     {'id':'SVC006','icon':'🧴','name':'Laundry / Ironing','cat':'Cleaning','color':0xFFEDE7F6,'popular':false,'img':'assets/images/laundry-ironing.jpg'},
     {'id':'SVC007','icon':'❄️','name':'AC Service','cat':'Repairs','color':0xFFE3F2FD,'popular':true,'img':'assets/images/ac-service.jpg'},
-    {'id':'SVC009','icon':'🔧','name':'Appliance Repair','cat':'Repairs','color':0xFFFBE9E7,'popular':false,'img':'assets/images/laundry-ironing.jpg'},
+    {'id':'SVC009','icon':'🔌','name':'Appliance Repair','cat':'Repairs','color':0xFFFBE9E7,'popular':false,'img':''},
     {'id':'SVC012','icon':'⚡','name':'Electrician','cat':'Repairs','color':0xFFFFF9C4,'popular':true,'img':'assets/images/electrician.jpg'},
     {'id':'SVC011','icon':'🔧','name':'Plumber','cat':'Repairs','color':0xFFE1F5FE,'popular':true,'img':'assets/images/plumber.jpg'},
     {'id':'SVC013','icon':'🔨','name':'Carpenter','cat':'Repairs','color':0xFFEFEBE9,'popular':false,'img':'assets/images/carpenter.jpg'},
@@ -93,7 +86,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     {'id':'SVC010','icon':'💧','name':'Water Purifier','cat':'Repairs','color':0xFFE1F5FE,'popular':false,'img':'assets/images/water-purifier.jpg'},
     {'id':'SVC015','icon':'📷','name':'CCTV','cat':'Repairs','color':0xFFECEFF1,'popular':false,'img':'assets/images/cctv.jpg'},
     {'id':'SVC034','icon':'💂','name':'Security Guard','cat':'Care','color':0xFFEEEEEE,'popular':false,'img':'assets/images/security-guard.jpg'},
-    {'id':'SVC022','icon':'🏗️','name':'Civil / Mason','cat':'Repairs','color':0xFFFBE9E7,'popular':false,'img':'assets/images/civil-mason.jpg'},
+    {'id':'SVC022','icon':'👨‍🍳','name':'Cook','cat':'Care','color':0xFFFFF3E0,'popular':false,'img':'assets/images/cook.jpg'},
   ];
 
   List<Map<String, dynamic>> get _filtered {
@@ -115,11 +108,86 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   @override
   void initState() {
     super.initState();
-    _startAppOtpListener();
+    WidgetsBinding.instance.addObserver(this);
     _user = FirebaseAuth.instance.currentUser;
     _bookingTabCtrl = TabController(length: 3, vsync: this);
     _loadAndUpdateCity();
     _loadProviderPriceRanges();
+    _loadActiveBooking();
+    _startActivePolling();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      NotificationService.markHomeReady();
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused) {
+      _activeTimer?.cancel();
+      _activeTimer = null;
+    } else if (state == AppLifecycleState.resumed) {
+      _loadActiveBooking();
+      _startActivePolling();
+    }
+  }
+
+  void _startActivePolling() {
+    _activeTimer?.cancel();
+    if (FirebaseAuth.instance.currentUser == null) return;
+    _activeTimer = Timer.periodic(const Duration(seconds: 15), (_) => _loadActiveBooking());
+  }
+
+  Future<void> _loadActiveBooking() async {
+    if (FirebaseAuth.instance.currentUser == null || _activeLoading) return;
+    _activeLoading = true;
+    try {
+      final b = await ApiService.getActiveBooking();
+      if (mounted) setState(() => _activeBooking = b);
+    } on ApiException catch (e) {
+      debugPrint('Active booking check failed: ${e.message}');
+    } finally {
+      _activeLoading = false;
+    }
+  }
+
+  Future<void> _openBooking(String id) async {
+    if (id.isEmpty) return;
+    await Navigator.push(context,
+        MaterialPageRoute(builder: (_) => BookingStatusScreen(bookingId: id)));
+    _loadActiveBooking();
+  }
+
+  Widget _activeBanner() {
+    final b = _activeBooking;
+    if (b == null) return const SizedBox.shrink();
+    final c = statusColor(b);
+    final icon = asStr(b['svc_icon']).isEmpty ? '🔧' : asStr(b['svc_icon']);
+    return GestureDetector(
+      onTap: () => _openBooking(asStr(b['id'])),
+      child: Container(
+        margin: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: c, width: 1.5),
+          boxShadow: [BoxShadow(color: c.withOpacity(0.15), blurRadius: 10)],
+        ),
+        child: Row(children: [
+          Text(icon, style: const TextStyle(fontSize: 28)),
+          const SizedBox(width: 12),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text('YOUR ACTIVE BOOKING', style: TextStyle(
+              fontSize: 10, fontWeight: FontWeight.w800, color: AppColors.muted, letterSpacing: .5)),
+            Text(asStr(b['svc_name']), style: const TextStyle(
+              fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.ink)),
+            Text(statusLabel(b), style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: c)),
+          ])),
+          const Text('View', style: TextStyle(fontWeight: FontWeight.w800, color: AppColors.teal)),
+          const Icon(Icons.chevron_right_rounded, color: AppColors.teal),
+        ]),
+      ),
+    );
   }
 
   Future<void> _loadProviderPriceRanges() async {
@@ -131,13 +199,15 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       ranges.forEach((svcId, val) {
         if (val is Map) {
           parsed[svcId] = {
-            'min': (val['min'] as num?)?.toInt() ?? 0,
-            'max': (val['max'] as num?)?.toInt() ?? 0,
+            'min': asInt(val['min']),
+            'max': asInt(val['max']),
           };
         }
       });
       if (mounted) setState(() => _providerPriceRanges = parsed);
-    } catch (_) {}
+    } on ApiException catch (e) {
+      debugPrint('Price ranges failed: ${e.message}');
+    }
   }
 
   Future<void> _loadAndUpdateCity() async {
@@ -147,21 +217,19 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     if (savedCity.isNotEmpty && mounted) {
       setState(() => _city = savedCity);
     }
-    // 2. Load from MySQL
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid != null) {
+    // 2. Load from the API
+    if (FirebaseAuth.instance.currentUser != null) {
       try {
-        final profile = await ApiService.getCustomer(uid);
+        final profile = await ApiService.getCustomer();
         if (profile != null) {
-          final city = profile['city']?.toString() ?? '';
-          final name = profile['name']?.toString() ?? '';
-          if (mounted) setState(() {
-            if (city.isNotEmpty) _city = city;
-          });
+          final city = asStr(profile['city']);
+          if (city.isNotEmpty && mounted) setState(() => _city = city);
           if (city.isNotEmpty) await prefs.setString('user_city', city);
           await ApiService.saveCurrentUser(profile);
         }
-      } catch (_) {}
+      } on ApiException catch (e) {
+        debugPrint('Profile load failed: ${e.message}');
+      }
     }
     // 3. Silently refresh GPS in background
     _refreshGPSLocation();
@@ -184,14 +252,19 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           city = placemarks.first.locality ??
               placemarks.first.subAdministrativeArea ?? '';
         }
-      } catch (_) {}
-      final uid = FirebaseAuth.instance.currentUser?.uid;
-      if (uid != null) {
-        await ApiService.updateCustomer({
-          'lat': pos.latitude,
-          'lng': pos.longitude,
-          if (city.isNotEmpty) 'city': city,
-        });
+      } catch (_) {
+        // reverse geocoding is optional
+      }
+      if (FirebaseAuth.instance.currentUser != null) {
+        try {
+          await ApiService.updateCustomer({
+            'lat': pos.latitude,
+            'lng': pos.longitude,
+            if (city.isNotEmpty) 'city': city,
+          });
+        } on ApiException catch (e) {
+          debugPrint('Saving location failed: ${e.message}');
+        }
       }
       if (city.isNotEmpty && mounted) {
         final prefs = await SharedPreferences.getInstance();
@@ -205,7 +278,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           _showWelcomePopup(city);
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      // Background refresh only — the saved city is still shown.
+      debugPrint('GPS refresh failed: $e');
+    }
   }
 
   void _showWelcomePopup(String city) {
@@ -230,19 +306,14 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
               const Text('🎉', style: TextStyle(fontSize: 52)),
               const SizedBox(height: 12),
               const Text(
-                'Congratulations!',
+                'Location set!',
                 style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: Colors.white),
               ),
               const SizedBox(height: 8),
               Text(
-                'We have the best service providers in $city ready for you!',
+                'Showing services for $city. Pick a service, choose a slot and providers near you can send a quote.',
                 textAlign: TextAlign.center,
                 style: const TextStyle(fontSize: 14, color: Colors.white70, height: 1.5),
-              ),
-              const SizedBox(height: 6),
-              const Text(
-                'Are you excited? 🚀',
-                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Colors.white),
               ),
               const SizedBox(height: 22),
               SizedBox(
@@ -260,7 +331,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     elevation: 0,
                   ),
                   child: const Text(
-                    "Yes! Let's Go 🎊",
+                    "Let's go",
                     style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
                   ),
                 ),
@@ -274,119 +345,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
   @override
   void dispose() {
-    _appOtpListener?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    _activeTimer?.cancel();
     _searchCtrl.dispose();
     _bookingTabCtrl.dispose();
     super.dispose();
-  }
-
-  void _startAppOtpListener() {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    if (uid == null) return;
-    // Poll MySQL for active booking OTP status
-    _appOtpListener = Stream.periodic(const Duration(seconds: 5))
-        .asyncMap((_) => ApiService.getActiveBooking(uid))
-        .listen((booking) {
-      if (booking == null || !mounted) return;
-      final all = {'active': booking};
-      for (final entry in all.entries) {
-        final data = Map<String, dynamic>.from(entry.value as Map);
-        final status = data['status']?.toString() ?? '';
-        final otp = data['otp']?.toString() ?? '';
-        final bookingId = data['bookingId']?.toString() ?? entry.key;
-        if (status == 'waiting' && otp.isNotEmpty) {
-          // Show popup — also handles resent OTP (even if popup already shown)
-          setState(() {
-            _showAppOtpPopup = true;
-            _appOtpCode = otp;
-            _appOtpBookingId = bookingId;
-            _appOtpService = data['service']?.toString() ?? '';
-            _appOtpBooking = data;
-          });
-        } else if (status == 'verified' && _appOtpBookingId == bookingId) {
-          setState(() => _showAppOtpPopup = false);
-          // Load booking and navigate to payment
-          ApiService.getBooking(bookingId).then((booking) {
-            if (booking != null && mounted) {
-              Navigator.push(context, MaterialPageRoute(
-                  builder: (_) => PaymentScreen(bookingId: bookingId, booking: booking)));
-            }
-          });
-        }
-      }
-    });
-  }
-
-  Widget _buildAppOtpPopup() {
-    if (!_showAppOtpPopup) return const SizedBox.shrink();
-    return Stack(children: [
-      // Dark overlay
-      Positioned.fill(child: GestureDetector(
-        onTap: () {}, // prevent dismiss by tapping outside
-        child: Container(color: Colors.black.withOpacity(0.7)))),
-      // OTP card
-      Center(child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Container(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(24),
-            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 40)]),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Container(
-              padding: const EdgeInsets.all(24),
-              decoration: const BoxDecoration(
-                color: AppColors.teal,
-                borderRadius: BorderRadius.only(
-                  topLeft: Radius.circular(24), topRight: Radius.circular(24))),
-              child: Column(children: [
-                const Icon(Icons.lock_rounded, color: Colors.white, size: 40),
-                const SizedBox(height: 8),
-                const Text('Job Completion OTP',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Colors.white)),
-                Text('Share with provider to complete $_appOtpService',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(fontSize: 12, color: Colors.white70)),
-              ])),
-            Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(children: [
-                const Text('YOUR OTP CODE',
-                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800,
-                    color: AppColors.muted, letterSpacing: 1)),
-                const SizedBox(height: 12),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: _appOtpCode.split('').map((d) => Container(
-                    width: 56, height: 64, margin: const EdgeInsets.symmetric(horizontal: 4),
-                    decoration: BoxDecoration(
-                      color: AppColors.bg, borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: AppColors.green, width: 2)),
-                    child: Center(child: Text(d,
-                      style: const TextStyle(fontSize: 34, fontWeight: FontWeight.w900,
-                        color: AppColors.ink))))).toList()),
-                const SizedBox(height: 16),
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: AppColors.yellow.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(10)),
-                  child: const Row(children: [
-                    Icon(Icons.info_outline_rounded, color: AppColors.yellow, size: 16),
-                    SizedBox(width: 8),
-                    Expanded(child: Text('Do not share this code until the work is done',
-                      style: TextStyle(fontSize: 12, color: AppColors.yellow,
-                        fontWeight: FontWeight.w600))),
-                  ])),
-                const SizedBox(height: 16),
-                TextButton(
-                  onPressed: () => setState(() => _showAppOtpPopup = false),
-                  child: const Text('Dismiss',
-                    style: TextStyle(color: AppColors.muted, fontSize: 13))),
-              ])),
-          ])),
-      )),
-    ]);
   }
 
   void _onServiceTap(Map<String, dynamic> svc) {
@@ -397,26 +360,16 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   }
 
 
-  void _secretTap() {
-    final now = DateTime.now();
-    if (_lastTap != null && now.difference(_lastTap!).inSeconds > 2) {
-      _testTapCount = 0;
-    }
-    _lastTap = now;
-    _testTapCount++;
-    if (_testTapCount >= 5) {
-      _testTapCount = 0;
-      Navigator.push(context, MaterialPageRoute(
-        builder: (_) => const TestConsoleScreen()));
-    }
-  }
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.bg,
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
-        onTap: (i) => setState(() => _currentIndex = i),
+        onTap: (i) {
+          setState(() => _currentIndex = i);
+          if (i == 0) _loadActiveBooking();
+        },
         selectedItemColor: AppColors.teal,
         unselectedItemColor: AppColors.muted,
         backgroundColor: Colors.white,
@@ -428,13 +381,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           BottomNavigationBarItem(icon: Icon(Icons.person_rounded), label: 'Profile'),
         ],
       ),
-      body: Stack(children: [
-        IndexedStack(
-          index: _currentIndex,
-          children: [_buildHome(), _buildBookings(), _buildProfile()],
-        ),
-        _buildAppOtpPopup(),
-      ]),
+      body: IndexedStack(
+        index: _currentIndex,
+        children: [_buildHome(), _buildBookings(), _buildProfile()],
+      ),
     );
   }
 
@@ -603,8 +553,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     return ListView(
       padding: EdgeInsets.zero,
       children: [
+        _activeBanner(),
         _bannersSection(),
-        _sectionHeader('🔥 Top Picks', 'Most booked services'),
+        _sectionHeader('🔥 Popular', 'Popular services'),
         _topPicksRow(),
         _sectionHeader('🛠️ All Services', '${_filtered.length} available'),
         _servicesGrid(),

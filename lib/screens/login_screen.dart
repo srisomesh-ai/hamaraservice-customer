@@ -1,12 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_database/firebase_database.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import '../services/api_service.dart';
-import 'package:local_auth/local_auth.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import '../utils/theme.dart';
 import '../services/firebase_service.dart';
+import '../utils/booking_format.dart';
+import '../utils/theme.dart';
 import 'home_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -22,62 +20,30 @@ class _LoginScreenState extends State<LoginScreen> {
   final _phoneCtrl   = TextEditingController();
   final _addressCtrl = TextEditingController();
   final _cityCtrl    = TextEditingController();
-  final _localAuth   = LocalAuthentication();
   bool _loading      = false;
   bool _isRegister   = false;
   bool _showPwd      = false;
-  bool _bioAvail     = false;
-  bool _bioEnabled   = false;
-  String _gender     = 'Male';
+  String _gender     = 'male';
   String _error      = '';
 
-  @override
-  void initState() {
-    super.initState();
-    _checkBiometrics();
+  void _goHome() {
+    if (!mounted) return;
+    Navigator.pushAndRemoveUntil(context,
+        MaterialPageRoute(builder: (_) => const HomeScreen()), (r) => false);
   }
 
-  // ── Biometric Setup ───────────────────────────────────────────────────────
-  Future<void> _checkBiometrics() async {
+  /// Upserts the customer profile on the server after any login. A failure
+  /// here does not block login (it is retried before booking), but the user
+  /// is told about it.
+  Future<void> _syncProfile({String? authMethod}) async {
     try {
-      final canCheck = await _localAuth.canCheckBiometrics;
-      final isSupported = await _localAuth.isDeviceSupported();
-      if (!mounted) return;
-      setState(() => _bioAvail = canCheck && isSupported);
-      if (_bioAvail) {
-        final prefs = await SharedPreferences.getInstance();
-        setState(() => _bioEnabled = prefs.getBool('bio_enabled') ?? false);
-        // Auto-trigger if enabled
-        if (_bioEnabled) _biometricLogin();
+      await ApiService.ensureCustomerProfile(authMethod: authMethod);
+    } on ApiException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Signed in, but profile sync failed: ${e.message}'),
+          backgroundColor: AppColors.red));
       }
-    } catch (_) {}
-  }
-
-  Future<void> _biometricLogin() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final savedEmail = prefs.getString('saved_email') ?? '';
-      final savedPwd   = prefs.getString('saved_pwd')   ?? '';
-      if (savedEmail.isEmpty || savedPwd.isEmpty) {
-        setState(() => _error = 'Please sign in once with email/password first to enable biometric login.');
-        return;
-      }
-      final auth = await _localAuth.authenticate(
-        localizedReason: 'Verify your identity to sign in',
-        options: const AuthenticationOptions(
-          biometricOnly: false,
-          stickyAuth: true,
-          useErrorDialogs: true,
-        ),
-      );
-      if (!auth) return;
-      setState(() { _loading = true; _error = ''; });
-      await FirebaseAuth.instance.signInWithEmailAndPassword(email: savedEmail, password: savedPwd);
-      if (mounted) Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const HomeScreen()));
-    } on PlatformException catch (e) {
-      setState(() { _loading = false; _error = 'Biometric failed: ${e.message}'; });
-    } catch (e) {
-      setState(() { _loading = false; _error = 'Login failed. Try email/password.'; });
     }
   }
 
@@ -86,25 +52,15 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() { _loading = true; _error = ''; });
     try {
       final result = await FirebaseService.signInWithGoogle();
-      if (result == null) { setState(() { _loading = false; }); return; }
-
-      // Save to MySQL — upsert customer record
-      final customer = await ApiService.registerCustomer(
-        name:       result.user?.displayName ?? '',
-        authMethod: 'google',
-      );
-      if (customer != null) await ApiService.saveCurrentUser(customer);
-
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('saved_email', result.user?.email ?? '');
-      await prefs.setString('auth_method', 'google');
-      if (mounted) Navigator.pushReplacement(context,
-          MaterialPageRoute(builder: (_) => const HomeScreen()));
+      if (result == null) { if (mounted) setState(() => _loading = false); return; }
+      await _syncProfile(authMethod: 'google');
+      _goHome();
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _loading = false;
         _error = e.toString().contains('sign_in_failed')
-            ? 'Google Sign-In failed. Make sure SHA-1 is added in Firebase Console.'
+            ? 'Google Sign-In failed. Please try again or use email/password.'
             : 'Google sign-in failed. Please try email/password.';
       });
     }
@@ -118,17 +74,8 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() { _loading = true; _error = ''; });
     try {
       await FirebaseAuth.instance.signInWithEmailAndPassword(email: email, password: pwd);
-      // Save for biometric
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('saved_email', email);
-      await prefs.setString('saved_pwd', pwd);
-      await prefs.setString('auth_method', 'email');
-      // Enable biometric if available
-      if (_bioAvail) {
-        await prefs.setBool('bio_enabled', true);
-        setState(() => _bioEnabled = true);
-      }
-      if (mounted) Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const HomeScreen()));
+      await _syncProfile(authMethod: 'email');
+      _goHome();
     } on FirebaseAuthException catch (e) {
       final msgs = {
         'user-not-found':     'No account with this email. Please register.',
@@ -136,8 +83,11 @@ class _LoginScreenState extends State<LoginScreen> {
         'invalid-email':      'Invalid email format.',
         'too-many-requests':  'Too many attempts. Please wait.',
         'invalid-credential': 'Incorrect email or password.',
+        'network-request-failed': 'Network error. Check your internet connection.',
       };
-      setState(() { _loading = false; _error = msgs[e.code] ?? 'Sign in failed. Try again.'; });
+      if (mounted) setState(() { _loading = false; _error = msgs[e.code] ?? 'Sign in failed. Try again.'; });
+    } catch (e) {
+      if (mounted) setState(() { _loading = false; _error = 'Sign in failed. Try again.'; });
     }
   }
 
@@ -146,45 +96,59 @@ class _LoginScreenState extends State<LoginScreen> {
     final email = _emailCtrl.text.trim();
     final pwd   = _pwdCtrl.text;
     final name  = _nameCtrl.text.trim();
+    final phone = normalizeIndianMobile(_phoneCtrl.text);
     if (name.isEmpty) { setState(() => _error = 'Enter your full name'); return; }
-    final phone = _phoneCtrl.text.trim();
-    if (phone.isEmpty || phone.length < 10) { setState(() => _error = 'Enter a valid 10-digit mobile number'); return; }
+    if (!indianMobileRegex.hasMatch(phone)) { setState(() => _error = 'Enter a valid 10-digit Indian mobile number'); return; }
     if (email.isEmpty || pwd.isEmpty) { setState(() => _error = 'Enter email and password'); return; }
     if (pwd.length < 8) { setState(() => _error = 'Password must be at least 8 characters'); return; }
     setState(() { _loading = true; _error = ''; });
+
+    UserCredential cred;
     try {
-      final cred = await FirebaseAuth.instance.createUserWithEmailAndPassword(email: email, password: pwd);
+      cred = await FirebaseAuth.instance.createUserWithEmailAndPassword(email: email, password: pwd);
       await cred.user?.updateDisplayName(name);
-
-      // Save full profile to MySQL
-      final uid = cred.user!.uid;
-      final customer = await ApiService.registerCustomer(
-        name:       name,
-        phone:      _phoneCtrl.text.trim(),
-        gender:     _gender,
-        address:    _addressCtrl.text.trim(),
-        city:       _cityCtrl.text.trim(),
-        authMethod: 'email',
-      );
-      if (customer != null) await ApiService.saveCurrentUser(customer);
-
-      // Save for biometric
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('saved_email', email);
-      await prefs.setString('saved_pwd', pwd);
-      if (_bioAvail) {
-        await prefs.setBool('bio_enabled', true);
-        setState(() => _bioEnabled = true);
-      }
-      if (mounted) Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const HomeScreen()));
     } on FirebaseAuthException catch (e) {
       final msgs = {
         'email-already-in-use': 'Email already registered. Please sign in.',
         'invalid-email':        'Invalid email format.',
         'weak-password':        'Password too weak.',
+        'network-request-failed': 'Network error. Check your internet connection.',
       };
-      setState(() { _loading = false; _error = msgs[e.code] ?? 'Registration failed. Try again.'; });
+      if (mounted) setState(() { _loading = false; _error = msgs[e.code] ?? 'Registration failed. Try again.'; });
+      return;
+    } catch (e) {
+      if (mounted) setState(() { _loading = false; _error = 'Registration failed. Try again.'; });
+      return;
     }
+
+    // Save full profile on the server
+    try {
+      String? fcm;
+      try {
+        fcm = await FirebaseMessaging.instance.getToken();
+      } catch (_) {
+        // token is synced later via onTokenRefresh / next login
+      }
+      await ApiService.registerCustomer(
+        name:       name,
+        phone:      phone,
+        email:      email,
+        gender:     _gender,
+        address:    _addressCtrl.text.trim(),
+        city:       _cityCtrl.text.trim(),
+        fcmToken:   fcm,
+        authMethod: 'email',
+      );
+    } on ApiException catch (e) {
+      // Firebase account exists; profile is retried on next login / booking.
+      if (mounted) {
+        setState(() => _loading = false);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Account created, but saving your profile failed: ${e.message}'),
+          backgroundColor: AppColors.red));
+      }
+    }
+    _goHome();
   }
 
   // ── Forgot Password ───────────────────────────────────────────────────────
@@ -286,44 +250,16 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                       ),
 
-                      // ── Biometric Button ───────────────────────────────
-                      if (_bioAvail && !_isRegister) ...[ 
-                        const SizedBox(height: 10),
-                        SizedBox(
-                          width: double.infinity, height: 48,
-                          child: OutlinedButton(
-                            onPressed: _loading ? null : _biometricLogin,
-                            style: OutlinedButton.styleFrom(
-                              side: BorderSide(color: AppColors.teal.withOpacity(0.4), width: 1.5),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                              backgroundColor: AppColors.tealSoft,
-                            ),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(Icons.fingerprint_rounded, color: AppColors.teal, size: 22),
-                                const SizedBox(width: 10),
-                                Text(
-                                  _bioEnabled ? 'Sign in with Fingerprint' : 'Set Up Biometric Login',
-                                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.teal),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ],
-
                       const SizedBox(height: 16),
-                      Row(children: [
-                        const Expanded(child: Divider(color: AppColors.line)),
-                        const Padding(padding: EdgeInsets.symmetric(horizontal: 12), child: Text('or', style: TextStyle(color: AppColors.muted, fontSize: 13))),
-                        const Expanded(child: Divider(color: AppColors.line)),
+                      const Row(children: [
+                        Expanded(child: Divider(color: AppColors.line)),
+                        Padding(padding: EdgeInsets.symmetric(horizontal: 12), child: Text('or', style: TextStyle(color: AppColors.muted, fontSize: 13))),
+                        Expanded(child: Divider(color: AppColors.line)),
                       ]),
                       const SizedBox(height: 16),
 
-                      // ── Name (register only) ───────────────────────────
+                      // ── Register-only fields ───────────────────────────
                       if (_isRegister) ...[
-                        // Full Name
                         const Text('Full Name *', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.ink2)),
                         const SizedBox(height: 6),
                         TextField(
@@ -336,7 +272,6 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                         const SizedBox(height: 12),
 
-                        // Phone
                         const Text('Mobile Number *', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.ink2)),
                         const SizedBox(height: 6),
                         TextField(
@@ -351,34 +286,34 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                         const SizedBox(height: 12),
 
-                        // Gender
                         const Text('Gender', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.ink2)),
                         const SizedBox(height: 8),
-                        Row(children: ['Male', 'Female', 'Other'].map((g) => Expanded(
+                        Row(children: const [
+                          ['male', 'Male'], ['female', 'Female'], ['other', 'Other'],
+                        ].map((g) => Expanded(
                           child: Padding(
                             padding: const EdgeInsets.only(right: 8),
                             child: GestureDetector(
-                              onTap: () => setState(() => _gender = g),
+                              onTap: () => setState(() => _gender = g[0]),
                               child: Container(
                                 padding: const EdgeInsets.symmetric(vertical: 10),
                                 decoration: BoxDecoration(
                                   border: Border.all(
-                                    color: _gender == g ? AppColors.teal : AppColors.line,
-                                    width: _gender == g ? 2 : 1.5),
+                                    color: _gender == g[0] ? AppColors.teal : AppColors.line,
+                                    width: _gender == g[0] ? 2 : 1.5),
                                   borderRadius: BorderRadius.circular(10),
-                                  color: _gender == g ? AppColors.tealSoft : Colors.white),
-                                child: Text(g,
+                                  color: _gender == g[0] ? AppColors.tealSoft : Colors.white),
+                                child: Text(g[1],
                                   textAlign: TextAlign.center,
                                   style: TextStyle(
                                     fontSize: 13, fontWeight: FontWeight.w700,
-                                    color: _gender == g ? AppColors.teal : AppColors.muted)),
+                                    color: _gender == g[0] ? AppColors.teal : AppColors.muted)),
                               ),
                             ),
                           ),
                         )).toList()),
                         const SizedBox(height: 12),
 
-                        // Address
                         const Text('Address', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.ink2)),
                         const SizedBox(height: 6),
                         TextField(
@@ -390,7 +325,6 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                         const SizedBox(height: 12),
 
-                        // City
                         const Text('City', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.ink2)),
                         const SizedBox(height: 6),
                         TextField(

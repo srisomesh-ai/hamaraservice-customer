@@ -1,13 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_database/firebase_database.dart';
 import '../services/api_service.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
 import '../utils/theme.dart';
-import 'home_screen.dart';
-import 'login_screen.dart';
 
 class LocationScreen extends StatefulWidget {
   const LocationScreen({super.key});
@@ -103,20 +100,15 @@ class _LocationScreenState extends State<LocationScreen> {
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
       try {
-        await ApiService.updateCustomer({
-          'city': city.trim(),
-          'updatedAt': DateTime.now().toIso8601String(),
-        });
-      } catch (e) {}
+        await ApiService.updateCustomer({'city': city.trim()});
+      } on ApiException catch (e) {
+        _showError('City saved on this device only: ${e.message}');
+      }
     }
 
     if (!mounted) return;
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(
-        builder: (_) => user != null ? const HomeScreen() : const LoginScreen(),
-      ),
-    );
+    // Opened from Home — return there (Home reloads the city on pop).
+    Navigator.pop(context);
   }
 
   @override

@@ -1,11 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_database/firebase_database.dart';
 import '../services/api_service.dart';
+import '../services/notification_service.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
 import '../utils/theme.dart';
-import 'login_screen.dart';
 import 'home_screen.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -35,27 +34,31 @@ class _SplashScreenState extends State<SplashScreen>
     await Future.delayed(const Duration(seconds: 2));
     if (!mounted) return;
     final user = FirebaseAuth.instance.currentUser;
+    bool askLocation = false;
     if (user != null) {
-      // Go to home first
-      Navigator.pushReplacement(
-        context, MaterialPageRoute(builder: (_) => const HomeScreen()));
-      // Then show location popup after short delay
-      await Future.delayed(const Duration(milliseconds: 500));
-      if (mounted) _showLocationPopup(user.uid);
-    } else {
-      // Guest mode — go to home without login
-      // Login will be asked only when customer tries to Book Now
-      Navigator.pushReplacement(
-        context, MaterialPageRoute(builder: (_) => const HomeScreen()));
+      try {
+        askLocation =
+            await Geolocator.checkPermission() == LocationPermission.denied;
+      } catch (_) {
+        askLocation = false;
+      }
     }
-  }
-
-  void _showLocationPopup(String uid) {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => _LocationDialog(uid: uid),
-    );
+    if (!mounted) return;
+    // Guests can browse; login is asked only when they try to book.
+    Navigator.pushReplacement(
+      context, MaterialPageRoute(builder: (_) => const HomeScreen()));
+    if (user != null && askLocation) {
+      await Future.delayed(const Duration(milliseconds: 500));
+      // This splash route is gone now — use the app navigator's context.
+      final ctx = navigatorKey.currentContext;
+      if (ctx != null && ctx.mounted) {
+        showDialog(
+          context: ctx,
+          barrierDismissible: false,
+          builder: (_) => const _LocationDialog(),
+        );
+      }
+    }
   }
 
   @override
@@ -125,8 +128,7 @@ class _SplashScreenState extends State<SplashScreen>
 
 // ── Location Permission Dialog ───────────────────────────────────
 class _LocationDialog extends StatefulWidget {
-  final String uid;
-  const _LocationDialog({required this.uid});
+  const _LocationDialog();
   @override
   State<_LocationDialog> createState() => _LocationDialogState();
 }
@@ -163,10 +165,15 @@ class _LocationDialogState extends State<_LocationDialog> {
           city = placemarks.first.locality ?? placemarks.first.subAdministrativeArea ?? '';
         }
       } catch (_) {}
-      await ApiService.updateCustomer({
-        'lat': pos.latitude, 'lng': pos.longitude,
-        if (city.isNotEmpty) 'city': city,
-      });
+      try {
+        await ApiService.updateCustomer({
+          'lat': pos.latitude, 'lng': pos.longitude,
+          if (city.isNotEmpty) 'city': city,
+        });
+      } on ApiException catch (e) {
+        debugPrint('Saving location failed: ${e.message}');
+      }
+      if (!mounted) return;
       setState(() {
         _status = city.isNotEmpty ? '📍 Location set to $city!' : '📍 Location detected!';
         _detecting = false;

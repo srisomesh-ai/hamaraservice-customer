@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_database/firebase_database.dart';
 import '../../services/api_service.dart';
+import '../../utils/booking_format.dart';
 import '../../utils/theme.dart';
 import '../../services/hs_catalog.dart';
 import '../booking/booking_flow_screen.dart';
@@ -25,8 +25,8 @@ class ServiceScreen extends StatefulWidget {
 class _ServiceScreenState extends State<ServiceScreen> {
   HSService? _svc;
   Map<String, int> _prices = {};
-  Set<String> _selectedTasks = {};    // 'task_sweep', 'task_dust' ...
-  Map<String, String> _selectedBhk = {}; // groupKey → optionKey
+  final Set<String> _selectedTasks = {};    // 'task_sweep', 'task_dust' ...
+  final Map<String, String> _selectedBhk = {}; // groupKey → optionKey
   bool _loading = true;
 
   @override
@@ -36,24 +36,31 @@ class _ServiceScreenState extends State<ServiceScreen> {
     _svc = HSCatalog.getById(widget.svcId);
     if (_svc == null) { setState(() => _loading = false); return; }
     try {
-      // Load prices from MySQL API
+      // Reference prices from the API: {groupKey: {optionKey: price}}
       final grouped = await ApiService.getServicePrices(widget.svcId);
       final flat = <String, int>{};
       grouped.forEach((groupKey, groupVal) {
         if (groupVal is Map) {
-          (groupVal as Map).forEach((optKey, price) {
-            if (price is int || price is double) {
-              flat['${groupKey}_$optKey'] = price is int ? price : (price as double).toInt();
-            }
+          groupVal.forEach((optKey, price) {
+            final v = asInt(price); // may arrive as int, double or string
+            if (v > 0) flat['${groupKey}_$optKey'] = v;
           });
         }
       });
       _prices = flat;
-    } catch (_) {}
-    // For visit-only services auto-select first option
-    if (_isVisitOnly) {
-      final g = _svc!.groups.first;
-      if (g.items.isNotEmpty) _selectedBhk[g.key] = g.items.first.key;
+    } on ApiException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Could not load prices: ${e.message}'),
+          backgroundColor: AppColors.red));
+      }
+    }
+    // Standalone single-select groups (incl. visit-only services) start
+    // with their first option selected so the estimate is never empty.
+    for (final g in _svc!.groups) {
+      if (g.style == 'bhk' && g.showOn == null && g.items.isNotEmpty) {
+        _selectedBhk[g.key] = g.items.first.key;
+      }
     }
     if (mounted) setState(() => _loading = false);
   }
@@ -71,11 +78,22 @@ class _ServiceScreenState extends State<ServiceScreen> {
       _svc!.groups.first.style == 'bhk' &&
       _svc!.groups.first.showOn == null;
 
+  /// Estimated total of everything selected. Task options are priced from
+  /// their own group unless a size/occasion sub-group (showOn) prices them.
   int get _total {
     if (_svc == null) return 0;
     int t = 0;
     for (final g in _svc!.groups) {
-      if (g.style == 'task' || g.style == 'info') continue;
+      if (g.style == 'info') continue;
+      if (g.style == 'task') {
+        for (final o in g.items) {
+          if (!_selectedTasks.contains('task_${o.key}')) continue;
+          final hasSubGroup = _svc!.groups
+              .any((sg) => sg.style == 'bhk' && sg.showOn == o.key);
+          if (!hasSubGroup) t += _p(g.key, o.key);
+        }
+        continue;
+      }
       if (g.style == 'bhk') {
         final show = g.showOn == null || _selectedTasks.contains('task_${g.showOn}');
         if (!show) continue;
@@ -109,8 +127,12 @@ class _ServiceScreenState extends State<ServiceScreen> {
   bool get _canBook {
     if (_svc == null) return false;
     if (_isVisitOnly) return true;
+    // Tasks are mandatory only when they are the sole choice (e.g. House
+    // Maid); otherwise they are optional add-ons to a standalone group.
+    final hasStandalone =
+        _svc!.groups.any((g) => g.style == 'bhk' && g.showOn == null);
     final hasTasks = _svc!.groups.any((g) => g.style == 'task');
-    return hasTasks ? _selectedTasks.isNotEmpty : true;
+    return (hasTasks && !hasStandalone) ? _selectedTasks.isNotEmpty : true;
   }
 
   void _toggleTask(String taskKey) {
@@ -176,7 +198,7 @@ class _ServiceScreenState extends State<ServiceScreen> {
               if (_isVisitOnly) ...[
                 _buildVisitCard(),
                 const SizedBox(height: 16),
-                _buildNoteBox('How pricing works: You pay the visit fee when booking. After inspection the provider gives you a quote for parts & labour. No hidden charges.'),
+                _buildNoteBox('How pricing works: nothing is charged when you book. The visit fee shown is an estimate — after inspection the provider quotes the final price, which you accept in the app before work starts. You pay after the service.'),
                 const SizedBox(height: 24),
                 _buildHowItWorks(),
               ] else
@@ -229,15 +251,13 @@ class _ServiceScreenState extends State<ServiceScreen> {
       Text(_svc!.name, style: const TextStyle(
         fontFamily: 'Sora', fontSize: 26, fontWeight: FontWeight.w800, color: Colors.white)),
       const SizedBox(height: 6),
-      Text('Verified professionals at your doorstep',
+      Text('Admin-approved professionals at your doorstep',
         style: TextStyle(fontSize: 13, color: Colors.white.withOpacity(0.6))),
       const SizedBox(height: 16),
       // Tags
       Wrap(spacing: 6, runSpacing: 6, children: [
-        _heroTag('⭐ 4.8 Rated'),
-        _heroTag('✅ Verified'),
-        _heroTag('🕐 On-time'),
-        _heroTag('🛡️ Insured'),
+        _heroTag('✅ Approved providers'),
+        _heroTag('🤝 Price agreed before work'),
         _heroTag('💳 Pay after service'),
       ]),
     ]));
@@ -257,9 +277,9 @@ class _ServiceScreenState extends State<ServiceScreen> {
     child: SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: Row(children: [
-        _trustItem('👥', 'Verified Pros'),
-        _trustItem('⚡', 'Book in 60s'),
-        _trustItem('🔒', 'Background checked'),
+        _trustItem('👥', 'Approved providers'),
+        _trustItem('⚡', 'Quick booking'),
+        _trustItem('🔐', 'OTP to start & finish'),
         _trustItem('💳', 'Pay after service'),
       ])));
 
@@ -276,23 +296,24 @@ class _ServiceScreenState extends State<ServiceScreen> {
 
   // ── TEMPLATE A: TASKS BODY ────────────────────────────────────
   Widget _buildTasksBody() {
-    final taskGroup = _svc!.groups.where((g) => g.style == 'task').firstOrNull;
-    if (taskGroup == null) {
-      // No task group — just bhk groups directly
-      return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        ..._svc!.groups.map((g) {
-          if (g.style == 'bhk') return _buildBhkSection(g);
-          if (g.style == 'info') return _buildInfoBox(g.info ?? g.title);
-          return const SizedBox.shrink();
-        }),
-      ]);
-    }
-
+    // Render every group in catalog order: standalone single-select groups,
+    // info notes, and task groups (with the sub-group of each selected task).
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      // Section header — "1. Select Tasks"
+      ..._svc!.groups.map((g) {
+        if (g.showOn != null) return const SizedBox.shrink(); // shown under its task
+        if (g.style == 'bhk') return _buildBhkSection(g);
+        if (g.style == 'info') return _buildInfoBox(g.info ?? g.title);
+        if (g.style == 'task') return _buildTaskGroup(g);
+        return const SizedBox.shrink();
+      }),
+    ]);
+  }
+
+  Widget _buildTaskGroup(HSGroup taskGroup) {
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-        const Text('1. Select Tasks', style: TextStyle(
-          fontFamily: 'Sora', fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.ink)),
+        Expanded(child: Text(taskGroup.title, style: const TextStyle(
+          fontFamily: 'Sora', fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.ink))),
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
           decoration: BoxDecoration(color: const Color(0xFFdbeafe), borderRadius: BorderRadius.circular(100)),
@@ -300,22 +321,22 @@ class _ServiceScreenState extends State<ServiceScreen> {
             fontSize: 10, fontWeight: FontWeight.w700, color: Color(0xFF1d4ed8)))),
       ]),
       const SizedBox(height: 12),
-      // Task cards
       ...taskGroup.items.map((opt) {
         final taskKey = 'task_${opt.key}';
         final isSelected = _selectedTasks.contains(taskKey);
-        // Find related bhk/info group
         final subGroup = _svc!.groups.where((g) => g.showOn == opt.key).firstOrNull;
+        final price = subGroup == null ? _p(taskGroup.key, opt.key) : 0;
         return Column(children: [
-          _buildTaskCard(opt, taskKey, isSelected),
+          _buildTaskCard(opt, taskKey, isSelected, price),
           if (isSelected && subGroup != null) _buildSubSection(subGroup),
         ]);
       }),
+      const SizedBox(height: 20),
     ]);
   }
 
   // ── TASK CARD ─────────────────────────────────────────────────
-  Widget _buildTaskCard(HSOption opt, String taskKey, bool isSelected) =>
+  Widget _buildTaskCard(HSOption opt, String taskKey, bool isSelected, int price) =>
     GestureDetector(
       onTap: () => _toggleTask(taskKey),
       child: AnimatedContainer(
@@ -347,6 +368,9 @@ class _ServiceScreenState extends State<ServiceScreen> {
             Text(opt.name, style: TextStyle(
               fontSize: 14, fontWeight: FontWeight.w700,
               color: isSelected ? AppColors.teal : AppColors.ink)),
+            if (price > 0)
+              Text('₹$price', style: const TextStyle(
+                fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.muted)),
           ])),
           // Check circle
           AnimatedContainer(
@@ -467,9 +491,9 @@ class _ServiceScreenState extends State<ServiceScreen> {
               color: isSelected ? AppColors.teal2 : AppColors.ink2)),
           const SizedBox(height: 4),
           // Price — big bold like HTML
-          Text(price > 0 ? '₹$price' : '₹0',
+          Text(price > 0 ? '₹$price' : 'On quote',
             style: TextStyle(
-              fontFamily: 'Sora', fontSize: 20, fontWeight: FontWeight.w800,
+              fontFamily: 'Sora', fontSize: price > 0 ? 20 : 13, fontWeight: FontWeight.w800,
               color: isSelected ? AppColors.teal2 : AppColors.teal)),
           const SizedBox(height: 4),
           // Selector dot
@@ -528,22 +552,22 @@ class _ServiceScreenState extends State<ServiceScreen> {
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
           child: Row(children: [
             Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Text('VISIT FEE', style: TextStyle(
+              const Text('EST. VISIT FEE', style: TextStyle(
                 fontSize: 10, fontWeight: FontWeight.w700,
                 color: AppColors.muted, letterSpacing: 0.5)),
-              Text(price > 0 ? '₹$price' : '₹0', style: const TextStyle(
+              Text(price > 0 ? '₹$price' : 'On quote', style: const TextStyle(
                 fontFamily: 'Sora', fontSize: 38, fontWeight: FontWeight.w800,
                 color: AppColors.teal)),
               const Text('Work charges quoted on-site',
                 style: TextStyle(fontSize: 11, color: AppColors.muted)),
             ]),
             const Spacer(),
-            Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-              const Text('You pay now', style: TextStyle(
+            const Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+              Text('Charged now', style: TextStyle(
                 fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.muted)),
-              Text(price > 0 ? '₹$price' : '₹0', style: const TextStyle(
+              Text('₹0', style: TextStyle(
                 fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.green)),
-              const Text('+ work after', style: TextStyle(
+              Text('pay after service', style: TextStyle(
                 fontSize: 10, color: AppColors.muted)),
             ]),
           ])),
@@ -601,10 +625,10 @@ class _ServiceScreenState extends State<ServiceScreen> {
         color: Colors.white, borderRadius: BorderRadius.circular(16),
         boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10)]),
       child: Column(children: [
-        _stepRow('1', 'Book online in 60 seconds', 'Select your slot and confirm.'),
-        _stepRow('2', 'Professional arrives at your door', 'On-time guaranteed. Track live.'),
-        _stepRow('3', 'Inspection & transparent quote', 'Diagnose and show price before work.'),
-        _stepRow('4', 'Work done — you pay', 'Pay via UPI, card or cash.', last: true),
+        _stepRow('1', 'Book online', 'Select your slot and confirm. Nothing is charged now.'),
+        _stepRow('2', 'A nearby provider quotes a price', 'Accept, negotiate or decline in the app.'),
+        _stepRow('3', 'Provider arrives', 'You get their name and phone. Share the start OTP when they arrive.'),
+        _stepRow('4', 'Work done — you pay', 'Pay online (UPI, card) or in cash.', last: true),
       ])),
   ]);
 
@@ -631,7 +655,6 @@ class _ServiceScreenState extends State<ServiceScreen> {
   // ── BOTTOM BAR — matches HTML exactly ─────────────────────────
   Widget _buildBottomBar() {
     final total = _total;
-    final hasAny = _selectedTasks.isNotEmpty || _isVisitOnly;
 
     // Build summary chips
     final chips = <String>[];
@@ -662,11 +685,11 @@ class _ServiceScreenState extends State<ServiceScreen> {
       child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min, children: [
-          const Text('TOTAL', style: TextStyle(
+          const Text('ESTIMATE', style: TextStyle(
             fontSize: 10, fontWeight: FontWeight.w700,
             color: AppColors.muted, letterSpacing: 0.5)),
-          Text(total > 0 ? '₹$total' : '₹0', style: const TextStyle(
-            fontFamily: 'Sora', fontSize: 28, fontWeight: FontWeight.w800,
+          Text(total > 0 ? '₹$total' : 'On quote', style: TextStyle(
+            fontFamily: 'Sora', fontSize: total > 0 ? 28 : 18, fontWeight: FontWeight.w800,
             color: AppColors.ink)),
           if (chips.isNotEmpty)
             Wrap(spacing: 4, children: chips.map((c) => Container(

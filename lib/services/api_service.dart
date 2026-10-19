@@ -254,6 +254,17 @@ class ApiService {
     return id;
   }
 
+  /// `id`/`role` for "my …" requests: the current API takes them from the
+  /// token, the previous API version requires them explicitly.
+  static Map<String, String> _mine(String action) {
+    final uid = FirebaseAuth.instance.currentUser?.uid ?? '';
+    return {
+      'action': action,
+      if (uid.isNotEmpty) 'id': uid,
+      'role': 'customer',
+    };
+  }
+
   /// Booking details (snake_case fields, see contract).
   static Future<Map<String, dynamic>> getBooking(String id) async {
     return _map(await _get('bookings.php', params: {'action': 'get', 'id': id}));
@@ -262,7 +273,7 @@ class ApiService {
   /// Current open booking for the signed-in customer (includes
   /// completed-but-unpaid), or null.
   static Future<Map<String, dynamic>?> getActiveBooking() async {
-    final data = await _get('bookings.php', params: {'action': 'active'});
+    final data = await _get('bookings.php', params: _mine('active'));
     if (data == null) return null;
     final m = _map(data);
     return m.isEmpty ? null : m;
@@ -270,7 +281,7 @@ class ApiService {
 
   /// Booking history, newest first. `other_party` = provider name.
   static Future<List<Map<String, dynamic>>> getBookingHistory() async {
-    return _list(await _get('bookings.php', params: {'action': 'history'}));
+    return _list(await _get('bookings.php', params: _mine('history')));
   }
 
   static Future<Map<String, dynamic>> _bookingAction(
@@ -286,8 +297,12 @@ class ApiService {
       _bookingAction('negotiate', bookingId, {'counter_price': counterPrice});
 
   /// Accept the quote / final offer. The server decides the price.
-  static Future<Map<String, dynamic>> confirmPrice(String bookingId) =>
-      _bookingAction('confirm_price', bookingId);
+  /// [shownPrice] is ignored by the current API (it uses its own stored
+  /// price); the previous API version requires it.
+  static Future<Map<String, dynamic>> confirmPrice(String bookingId,
+          {int shownPrice = 0}) =>
+      _bookingAction('confirm_price', bookingId,
+          {if (shownPrice > 0) 'confirmed_price': shownPrice});
 
   /// Decline the provider's quote → back to searching.
   static Future<Map<String, dynamic>> declineQuote(String bookingId) =>

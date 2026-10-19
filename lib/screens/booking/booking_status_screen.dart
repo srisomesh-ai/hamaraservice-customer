@@ -176,7 +176,11 @@ class _BookingStatusScreenState extends State<BookingStatusScreen>
         backgroundColor: error ? AppColors.red : AppColors.teal));
   }
 
-  Future<void> _acceptPrice() => _run(() => ApiService.confirmPrice(_id),
+  Future<void> _acceptPrice() => _run(
+      () => ApiService.confirmPrice(_id,
+          shownPrice: asStr(_b?['status']) == 'negotiation_final'
+              ? asInt(_b?['final_price'])
+              : asInt(_b?['quoted_price'])),
       success: 'Price accepted. Booking confirmed!');
 
   Future<void> _decline() => _run(() => ApiService.declineQuote(_id),

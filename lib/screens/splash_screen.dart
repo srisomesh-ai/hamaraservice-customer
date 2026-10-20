@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/services.dart';
+import '../services/session.dart';
 import '../services/api_service.dart';
 import '../services/notification_service.dart';
 import 'package:geolocator/geolocator.dart';
@@ -25,7 +26,7 @@ class _SplashScreenState extends State<SplashScreen>
     _ctrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 1200));
     _fade  = CurvedAnimation(parent: _ctrl, curve: Curves.easeIn);
     _scale = Tween<double>(begin: 0.8, end: 1.0)
-        .animate(CurvedAnimation(parent: _ctrl, curve: Curves.elasticOut));
+        .animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOutBack));
     _ctrl.forward();
     _navigate();
   }
@@ -33,7 +34,7 @@ class _SplashScreenState extends State<SplashScreen>
   Future<void> _navigate() async {
     await Future.delayed(const Duration(seconds: 2));
     if (!mounted) return;
-    final user = FirebaseAuth.instance.currentUser;
+    final user = Session.user;
     bool askLocation = false;
     if (user != null) {
       try {
@@ -66,45 +67,25 @@ class _SplashScreenState extends State<SplashScreen>
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [Color(0xFF0D3D47), AppColors.teal],
-          ),
-        ),
-        child: Center(
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: AppTheme.overlay,
+      child: Scaffold(
+        backgroundColor: Colors.white,
+        body: Center(
           child: FadeTransition(
             opacity: _fade,
             child: ScaleTransition(
               scale: _scale,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-                    margin: const EdgeInsets.symmetric(horizontal: 32),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(20),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.18),
-                          blurRadius: 24, offset: const Offset(0, 8)),
-                      ],
-                    ),
-                    child: Image.asset('assets/images/rlogo.png',
-                        width: 260, fit: BoxFit.contain),
-                  ),
-                  const SizedBox(height: 48),
-                  const SizedBox(width: 28, height: 28,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2.5,
-                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white54))),
-                ],
-              ),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 40),
+                  child: Image.asset('assets/images/rlogo.png', width: 280, fit: BoxFit.contain),
+                ),
+                const SizedBox(height: 40),
+                const SizedBox(
+                    width: 28, height: 28,
+                    child: CircularProgressIndicator(strokeWidth: 3)),
+              ]),
             ),
           ),
         ),
@@ -162,7 +143,7 @@ class _LocationDialogState extends State<_LocationDialog> {
       }
       if (!mounted) return;
       setState(() {
-        _status = city.isNotEmpty ? '📍 Location set to $city!' : '📍 Location detected!';
+        _status = city.isNotEmpty ? 'Location set to $city' : 'Location detected';
         _detecting = false;
         _done = true;
       });
@@ -177,60 +158,44 @@ class _LocationDialogState extends State<_LocationDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return Dialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Container(width: 72, height: 72,
-            decoration: BoxDecoration(color: AppColors.tealSoft, shape: BoxShape.circle),
-            child: const Icon(Icons.location_on_rounded, color: AppColors.teal, size: 38)),
-          const SizedBox(height: 16),
-          const Text('Allow Location Access',
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: AppColors.ink)),
-          const SizedBox(height: 10),
-          const Text(
-            'HamaraService needs your location to find nearby service providers.',
-            textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 13, color: AppColors.muted, height: 1.5)),
-          if (_status.isNotEmpty) ...[
-            const SizedBox(height: 14),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: _done ? AppColors.greenSoft : AppColors.tealSoft,
-                borderRadius: BorderRadius.circular(10)),
-              child: Row(children: [
-                if (_detecting)
-                  const SizedBox(width: 16, height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.teal))
-                else
-                  Icon(_done ? Icons.check_circle_rounded : Icons.info_rounded,
-                    color: _done ? AppColors.green : AppColors.teal, size: 16),
-                const SizedBox(width: 8),
-                Expanded(child: Text(_status,
-                  style: TextStyle(fontSize: 12,
-                    color: _done ? AppColors.green : AppColors.teal,
-                    fontWeight: FontWeight.w600))),
-              ])),
-          ],
-          const SizedBox(height: 20),
-          SizedBox(width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: _detecting ? null : _allow,
-              icon: const Icon(Icons.my_location_rounded, color: Colors.white, size: 18),
-              label: const Text('Allow Location',
-                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Colors.white)),
-              style: ElevatedButton.styleFrom(
-                minimumSize: const Size(double.infinity, 50),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))))),
-          const SizedBox(height: 8),
-          TextButton(
-            onPressed: _detecting ? null : () => Navigator.pop(context),
-            child: const Text('Skip for now',
-              style: TextStyle(color: AppColors.muted, fontWeight: FontWeight.w600))),
-        ]),
+    final t = Theme.of(context).textTheme;
+    return AlertDialog(
+      icon: const CircleAvatar(
+        radius: 28,
+        backgroundColor: AppColors.tealSoft,
+        child: Icon(Icons.location_on_rounded, color: AppColors.teal, size: 30),
       ),
+      title: const Text('Allow location access'),
+      content: Column(mainAxisSize: MainAxisSize.min, children: [
+        Text('HamaraService needs your location to find nearby service providers.',
+            textAlign: TextAlign.center,
+            style: t.bodyMedium?.copyWith(color: AppColors.ink2)),
+        if (_status.isNotEmpty) ...[
+          const SizedBox(height: 16),
+          Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+            if (_detecting)
+              const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+            else
+              Icon(_done ? Icons.check_circle_rounded : Icons.info_outline_rounded,
+                  color: _done ? AppColors.green : AppColors.teal, size: 18),
+            const SizedBox(width: 8),
+            Flexible(
+                child: Text(_status,
+                    style: t.bodyMedium?.copyWith(
+                        color: _done ? AppColors.green : AppColors.teal2))),
+          ]),
+        ],
+      ]),
+      actions: [
+        TextButton(
+            onPressed: _detecting ? null : () => Navigator.pop(context),
+            child: const Text('Skip for now')),
+        FilledButton.icon(
+          onPressed: _detecting ? null : _allow,
+          icon: const Icon(Icons.my_location_rounded, size: 18),
+          label: const Text('Allow location'),
+        ),
+      ],
     );
   }
 }

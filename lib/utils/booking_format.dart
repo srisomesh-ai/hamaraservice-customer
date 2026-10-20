@@ -146,6 +146,9 @@ String priceRangeText(dynamic r) {
 /// "3 providers" / "1 provider".
 String providerCountLabel(int n) => '$n provider${n == 1 ? '' : 's'}';
 
+/// Current time; replaced by tests so screenshots are deterministic.
+DateTime Function() clock = DateTime.now;
+
 // ── Server times ──
 // The API returns times as IST wall-clock strings "YYYY-MM-DD HH:MM:SS".
 
@@ -163,7 +166,7 @@ String fmtServerTime(dynamic v) {
   final t = parseServerTime(v);
   if (t == null) return asStr(v);
   final ist = t.add(_istOffset);
-  final now = DateTime.now().toUtc().add(_istOffset);
+  final now = clock().toUtc().add(_istOffset);
   final h = ist.hour % 12 == 0 ? 12 : ist.hour % 12;
   final time =
       '$h:${ist.minute.toString().padLeft(2, '0')} ${ist.hour < 12 ? 'AM' : 'PM'}';
@@ -180,7 +183,7 @@ String fmtServerTime(dynamic v) {
 /// "1 h 25 min" between two server times ([to] defaults to now), or ''.
 String fmtWorkDuration(dynamic from, [dynamic to]) {
   final a = parseServerTime(from);
-  final b = to == null ? DateTime.now().toUtc() : parseServerTime(to);
+  final b = to == null ? clock().toUtc() : parseServerTime(to);
   if (a == null || b == null) return '';
   final secs = b.difference(a).inSeconds;
   if (secs < 0) return '';

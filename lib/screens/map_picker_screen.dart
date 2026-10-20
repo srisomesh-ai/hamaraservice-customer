@@ -158,8 +158,7 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
 
   void _toast(String msg) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(msg), backgroundColor: AppColors.red));
+    showSnack(context, msg, error: true);
   }
 
   void _confirm() {
@@ -181,8 +180,9 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final t = Theme.of(context).textTheme;
     return Scaffold(
-      appBar: AppBar(title: Text(widget.title), backgroundColor: AppColors.teal),
+      appBar: AppBar(title: Text(widget.title)),
       body: Column(children: [
         Expanded(
           child: Stack(children: [
@@ -223,59 +223,55 @@ class _MapPickerScreenState extends State<MapPickerScreen> {
             ),
             Positioned(
               right: 12,
-              top: 12,
+              bottom: 36,
               child: FloatingActionButton.extended(
                 heroTag: 'mapMyLocation',
                 onPressed: _locating ? null : _useMyLocation,
                 backgroundColor: Colors.white,
-                foregroundColor: AppColors.teal,
+                foregroundColor: AppColors.teal2,
                 icon: _locating
                     ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(
-                            strokeWidth: 2, color: AppColors.teal))
+                        width: 18, height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2))
                     : const Icon(Icons.my_location_rounded),
-                label: const Text('Use my current location',
-                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12.5)),
+                label: const Text('Use my current location'),
               ),
             ),
           ]),
         ),
         Container(
-          color: Colors.white,
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 20),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            border: Border(top: BorderSide(color: AppColors.line)),
+          ),
           child: SafeArea(
             top: false,
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                const Icon(Icons.place_rounded, color: AppColors.teal, size: 20),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    _resolving
-                        ? 'Finding address…'
-                        : (_address.isNotEmpty
-                            ? _address
-                            : '${_centre.latitude.toStringAsFixed(5)}, ${_centre.longitude.toStringAsFixed(5)}'),
-                    style: const TextStyle(
-                        fontSize: 13, color: AppColors.ink2, fontWeight: FontWeight.w600),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+              child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                Text('Selected location', style: t.labelMedium?.copyWith(color: AppColors.muted)),
+                const SizedBox(height: 4),
+                Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  const Icon(Icons.place_rounded, color: AppColors.teal, size: 20),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _resolving
+                          ? 'Finding address…'
+                          : (_address.isNotEmpty
+                              ? _address
+                              : '${_centre.latitude.toStringAsFixed(5)}, ${_centre.longitude.toStringAsFixed(5)}'),
+                      style: t.titleSmall,
+                    ),
                   ),
-                ),
+                ]),
+                const SizedBox(height: 4),
+                Text('Move the map so the pin sits exactly on your door.',
+                    style: t.bodySmall?.copyWith(color: AppColors.muted)),
+                const SizedBox(height: 12),
+                FilledButton(onPressed: _confirm, child: Text(widget.confirmText)),
               ]),
-              const SizedBox(height: 4),
-              const Align(
-                alignment: Alignment.centerLeft,
-                child: Text('Move the map so the pin sits exactly on your door.',
-                    style: TextStyle(fontSize: 11.5, color: AppColors.muted)),
-              ),
-              const SizedBox(height: 12),
-              ElevatedButton(
-                onPressed: _confirm,
-                child: Text(widget.confirmText,
-                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
-              ),
-            ]),
+            ),
           ),
         ),
       ]),

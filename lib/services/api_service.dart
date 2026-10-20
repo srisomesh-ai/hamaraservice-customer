@@ -195,6 +195,24 @@ class ApiService {
         params: {'action': 'fcm'});
   }
 
+  /// Delete the account (customers.php?action=delete): the server
+  /// anonymises the profile and cancels a still-searching booking.
+  /// 409 when a booking is in progress.
+  static Future<void> deleteAccount() async {
+    await _post('customers.php', const {}, params: {'action': 'delete'});
+  }
+
+  /// Website login (customers.php?action=web_login) — used only to get the
+  /// same error message as the web (NOT_REGISTERED / incorrect password) and
+  /// to move an older web-only account onto Firebase so the app can sign in.
+  /// Returns normally on success; throws [ApiException] with the server text.
+  static Future<void> webLogin(String email, String password) async {
+    final uri = Uri.parse('$_base/customers.php?action=web_login');
+    await _send(() => http.post(uri,
+        headers: const {'Content-Type': 'application/json', 'Accept': 'application/json'},
+        body: jsonEncode({'email': email, 'password': password})));
+  }
+
   // ── SERVICES ────────────────────────────────────────────
 
   /// Provider price ranges per service:
@@ -250,6 +268,27 @@ class ApiService {
       return cfg;
     } on ApiException {
       return <String, dynamic>{};
+    }
+  }
+
+  /// Service ids the admin switched off in the live catalog
+  /// (hamaraservice.com/catalog.json, same file the web app reads).
+  /// Empty when unreachable.
+  static Future<Set<String>> getInactiveServices() async {
+    try {
+      final resp = await http
+          .get(Uri.parse('https://hamaraservice.com/catalog.json'))
+          .timeout(_timeout);
+      final d = jsonDecode(resp.body);
+      if (d is! List) return <String>{};
+      return d
+          .whereType<Map>()
+          .where((x) => x['status']?.toString() == 'inactive')
+          .map((x) => x['id']?.toString() ?? '')
+          .where((id) => id.isNotEmpty)
+          .toSet();
+    } catch (_) {
+      return <String>{};
     }
   }
 
@@ -358,6 +397,10 @@ class ApiService {
   static Future<Map<String, dynamic>> cancelBooking(
           String bookingId, String reason) =>
       _bookingAction('cancel', bookingId, {'reason': reason});
+
+  /// Start OTP for a confirmed booking (normally already in `get`).
+  static Future<Map<String, dynamic>> generateStartOtp(String bookingId) =>
+      _bookingAction('generate_start_otp', bookingId);
 
   /// Razorpay order for a completed, unpaid booking:
   /// {order_id, amount (paise), currency, key_id, booking_id}

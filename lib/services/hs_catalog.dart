@@ -57,7 +57,7 @@ class HSCatalog {
   static const List<HSService> services = [
 
     // ── SVC001 House Maid ──────────────────────────────────────────
-    HSService(id:'SVC001', name:'House Maid', icon:'🧹', cat:'Home Cleaning', basePrice:0, groups:[
+    HSService(id:'SVC001', name:'House Maid', icon:'🧹', cat:'Home Cleaning', basePrice:129, groups:[
       HSGroup(key:'task', title:'Select Tasks', style:'task', items:[
         HSOption(key:'sweep',   name:'Sweeping & Mopping',    ico:'🧹'),
         HSOption(key:'dust',    name:'Dusting',               ico:'🪣'),
@@ -94,7 +94,7 @@ class HSCatalog {
     ]),
 
     // ── SVC002 Deep Cleaning ───────────────────────────────────────
-    HSService(id:'SVC002', name:'Deep Cleaning', icon:'🧽', cat:'Home Cleaning', basePrice:0, groups:[
+    HSService(id:'SVC002', name:'Deep Cleaning', icon:'🧽', cat:'Home Cleaning', basePrice:799, groups:[
       HSGroup(key:'bhk', title:'With Material & Equipment — Price per Home Size', style:'bhk', items:[
         HSOption(key:'studio', name:'Studio / 1 Room',  price:0),
         HSOption(key:'1bhk',   name:'1 BHK',            price:0),
@@ -120,7 +120,7 @@ class HSCatalog {
     ]),
 
     // ── SVC003 Bathroom Cleaning ───────────────────────────────────
-    HSService(id:'SVC003', name:'Bathroom Cleaning', icon:'🚿', cat:'Home Cleaning', basePrice:0, groups:[
+    HSService(id:'SVC003', name:'Bathroom Cleaning', icon:'🚿', cat:'Home Cleaning', basePrice:299, groups:[
       HSGroup(key:'with', title:'With Material & Equipment — Per Bathroom', style:'bhk', items:[
         HSOption(key:'perBath', name:'Per Bathroom', price:0),
       ]),
@@ -137,7 +137,7 @@ class HSCatalog {
     ]),
 
     // ── SVC004 Kitchen Cleaning ────────────────────────────────────
-    HSService(id:'SVC004', name:'Kitchen Cleaning', icon:'🍳', cat:'Home Cleaning', basePrice:0, groups:[
+    HSService(id:'SVC004', name:'Kitchen Cleaning', icon:'🍳', cat:'Home Cleaning', basePrice:149, groups:[
       HSGroup(key:'with', title:'With Material & Equipment — Select What to Clean', style:'task', items:[
         HSOption(key:'tiles',    ico:'🧱', name:'Degreasing Tiles & Walls',      price:0),
         HSOption(key:'cabinets', ico:'🗄️', name:'Cabinets (inside & outside)',   price:0),
@@ -153,14 +153,14 @@ class HSCatalog {
     ]),
 
     // ── SVC005 Sofa / Carpet Cleaning ─────────────────────────────
-    HSService(id:'SVC005', name:'Sofa / Carpet Cleaning', icon:'🛋️', cat:'Home Cleaning', basePrice:0, groups:[
+    HSService(id:'SVC005', name:'Sofa / Carpet Cleaning', icon:'🛋️', cat:'Home Cleaning', basePrice:299, groups:[
       HSGroup(key:'visit', title:'Visit / Call-out Price', style:'bhk', items:[
         HSOption(key:'visit', name:'Visit fee (provider will quote exact price on arrival)', price:0),
       ]),
     ]),
 
     // ── SVC006 Laundry / Ironing ───────────────────────────────────
-    HSService(id:'SVC006', name:'Laundry / Ironing', icon:'👕', cat:'Home Cleaning', basePrice:0, groups:[
+    HSService(id:'SVC006', name:'Laundry / Ironing', icon:'👕', cat:'Home Cleaning', basePrice:149, groups:[
       HSGroup(key:'wash', title:'Washing — Base Price (per 15 items)', style:'bhk', items:[
         HSOption(key:'basePrice', name:'Per 15 clothes (base)',        price:0),
         HSOption(key:'extraPer',  name:'Per extra item (above 15)',    price:0),
@@ -175,70 +175,70 @@ class HSCatalog {
     ]),
 
     // ── SVC007 AC Cleaning & Repair ────────────────────────────────
-    HSService(id:'SVC007', name:'AC Cleaning & Repair', icon:'❄️', cat:'Home Services', basePrice:0, groups:[
+    HSService(id:'SVC007', name:'AC Cleaning & Repair', icon:'❄️', cat:'Home Services', basePrice:299, groups:[
       HSGroup(key:'visit', title:'Visit / Call-out Price', style:'bhk', items:[
         HSOption(key:'visit', name:'Visit fee (work quoted on-site)', price:0),
       ]),
     ]),
 
     // ── SVC009 Home Appliance Repair ──────────────────────────────
-    HSService(id:'SVC009', name:'Home Appliance Repair', icon:'🔌', cat:'Home Services', basePrice:0, groups:[
+    HSService(id:'SVC009', name:'Home Appliance Repair', icon:'🔌', cat:'Home Services', basePrice:199, groups:[
       HSGroup(key:'appliance', title:'Visit / Call-out Price', style:'bhk', items:[
         HSOption(key:'visit', name:'Visit fee (work quoted on-site)', price:0),
       ]),
     ]),
 
     // ── SVC010 Water Purifier Service ─────────────────────────────
-    HSService(id:'SVC010', name:'Water Purifier Service', icon:'💧', cat:'Home Services', basePrice:0, groups:[
+    HSService(id:'SVC010', name:'Water Purifier Service', icon:'💧', cat:'Home Services', basePrice:199, groups:[
       HSGroup(key:'visit', title:'Visit / Call-out Price', style:'bhk', items:[
         HSOption(key:'visit', name:'Visit fee (work quoted on-site)', price:0),
       ]),
     ]),
 
     // ── SVC011 Plumber ─────────────────────────────────────────────
-    HSService(id:'SVC011', name:'Plumber', icon:'🪠', cat:'Home Services', basePrice:0, groups:[
+    HSService(id:'SVC011', name:'Plumber', icon:'🪠', cat:'Home Services', basePrice:149, groups:[
       HSGroup(key:'visit', title:'Visit / Call-out Price', style:'bhk', items:[
         HSOption(key:'visit', name:'Visit fee (work quoted on-site)', price:0),
       ]),
     ]),
 
     // ── SVC012 Electrician ─────────────────────────────────────────
-    HSService(id:'SVC012', name:'Electrician', icon:'⚡', cat:'Home Services', basePrice:0, groups:[
+    HSService(id:'SVC012', name:'Electrician', icon:'⚡', cat:'Home Services', basePrice:149, groups:[
       HSGroup(key:'visit', title:'Visit / Call-out Price', style:'bhk', items:[
         HSOption(key:'visit', name:'Visit fee (work quoted on-site)', price:0),
       ]),
     ]),
 
     // ── SVC013 Carpenter ───────────────────────────────────────────
-    HSService(id:'SVC013', name:'Carpenter', icon:'🪚', cat:'Home Services', basePrice:0, groups:[
+    HSService(id:'SVC013', name:'Carpenter', icon:'🪚', cat:'Home Services', basePrice:199, groups:[
       HSGroup(key:'visit', title:'Visit / Call-out Price', style:'bhk', items:[
         HSOption(key:'visit', name:'Visit fee (work quoted on-site)', price:0),
       ]),
     ]),
 
     // ── SVC014 Painter ─────────────────────────────────────────────
-    HSService(id:'SVC014', name:'Painter', icon:'🎨', cat:'Home Services', basePrice:0, groups:[
+    HSService(id:'SVC014', name:'Painter', icon:'🎨', cat:'Home Services', basePrice:499, groups:[
       HSGroup(key:'rooms', title:'With Material — Price per Room', style:'bhk', items:[
         HSOption(key:'pricePerRoom', name:'Per room (base)', price:0),
       ]),
     ]),
 
     // ── SVC015 CCTV Installation ───────────────────────────────────
-    HSService(id:'SVC015', name:'CCTV Installation', icon:'📹', cat:'Home Services', basePrice:0, groups:[
+    HSService(id:'SVC015', name:'CCTV Installation', icon:'📹', cat:'Home Services', basePrice:399, groups:[
       HSGroup(key:'visit', title:'Visit / Call-out Price', style:'bhk', items:[
         HSOption(key:'visit', name:'Visit fee (work quoted on-site)', price:0),
       ]),
     ]),
 
     // ── SVC016 Solar Panel Cleaning ────────────────────────────────
-    HSService(id:'SVC016', name:'Solar Panel Cleaning', icon:'☀️', cat:'Home Services', basePrice:0, groups:[
+    HSService(id:'SVC016', name:'Solar Panel Cleaning', icon:'☀️', cat:'Home Services', basePrice:199, groups:[
       HSGroup(key:'visit', title:'Visit / Call-out Price', style:'bhk', items:[
         HSOption(key:'visit', name:'Visit fee (work quoted on-site)', price:0),
       ]),
     ]),
 
     // ── SVC017 Car / Bike Wash ─────────────────────────────────────
-    HSService(id:'SVC017', name:'Car / Bike Wash', icon:'🚗', cat:'Vehicle Care', basePrice:0, groups:[
+    HSService(id:'SVC017', name:'Car / Bike Wash', icon:'🚗', cat:'Vehicle Care', basePrice:149, groups:[
       HSGroup(key:'car', title:'Car Wash Prices', style:'task', items:[
         HSOption(key:'exterior',  ico:'🚗', name:'Exterior Car Cleaning',   price:0),
         HSOption(key:'interior',  ico:'🪣', name:'Interior Cleaning',       price:0),
@@ -261,7 +261,7 @@ class HSCatalog {
     ]),
 
     // ── SVC019 Car & Bike Mechanic ─────────────────────────────────
-    HSService(id:'SVC019', name:'Car & Bike Mechanic', icon:'🔧', cat:'Vehicle Care', basePrice:0, groups:[
+    HSService(id:'SVC019', name:'Car & Bike Mechanic', icon:'🔧', cat:'Vehicle Care', basePrice:199, groups:[
       HSGroup(key:'visit', title:'Visit / Call-out Price', style:'bhk', items:[
         HSOption(key:'car',  name:'Car visit fee (work quoted on-site)',  price:0),
         HSOption(key:'bike', name:'Bike visit fee (work quoted on-site)', price:0),
@@ -269,14 +269,14 @@ class HSCatalog {
     ]),
 
     // ── SVC021 Pest Control ────────────────────────────────────────
-    HSService(id:'SVC021', name:'Pest Control', icon:'🪲', cat:'Pest Control', basePrice:0, groups:[
+    HSService(id:'SVC021', name:'Pest Control', icon:'🪲', cat:'Pest Control', basePrice:599, groups:[
       HSGroup(key:'visit', title:'Visit / Call-out Price', style:'bhk', items:[
         HSOption(key:'visit', name:'Visit fee (work quoted on-site)', price:0),
       ]),
     ]),
 
     // ── SVC022 Cook / Cooking Person ──────────────────────────────
-    HSService(id:'SVC022', name:'Cook / Cooking Person', icon:'👨‍🍳', cat:'Cooking', basePrice:0, groups:[
+    HSService(id:'SVC022', name:'Cook / Cooking Person', icon:'👨‍🍳', cat:'Cooking', basePrice:249, groups:[
       HSGroup(key:'svc', title:'Service Type', style:'task', items:[
         HSOption(key:'breakfast', ico:'🌅', name:'Breakfast Cooking',        price:0),
         HSOption(key:'lunch',     ico:'☀️', name:'Lunch Cooking',            price:0),
@@ -300,7 +300,7 @@ class HSCatalog {
     ]),
 
     // ── SVC023 Men's Haircut ───────────────────────────────────────
-    HSService(id:'SVC023', name:"Men's Haircut at Home", icon:'✂️', cat:'Beauty & Wellness', basePrice:0, groups:[
+    HSService(id:'SVC023', name:"Men's Haircut at Home", icon:'✂️', cat:'Beauty & Wellness', basePrice:149, groups:[
       HSGroup(key:'svc', title:'Select Service', style:'task', items:[
         HSOption(key:'haircut',   ico:'✂️', name:'Haircut',            price:0),
         HSOption(key:'fade',      ico:'💈', name:'Fade / Taper Cut',   price:0),
@@ -320,7 +320,7 @@ class HSCatalog {
     ]),
 
     // ── SVC024 Women's Haircut & Beauty ───────────────────────────
-    HSService(id:'SVC024', name:"Women's Haircut & Beauty", icon:'💇', cat:'Beauty & Wellness', basePrice:0, groups:[
+    HSService(id:'SVC024', name:"Women's Haircut & Beauty", icon:'💇', cat:'Beauty & Wellness', basePrice:249, groups:[
       HSGroup(key:'cut', title:'Haircut', style:'task', items:[
         HSOption(key:'trim',     ico:'✂️', name:'Trim / Basic Cut', price:0),
         HSOption(key:'layer',    ico:'🌊', name:'Layer / Step Cut',  price:0),
@@ -365,7 +365,7 @@ class HSCatalog {
     ]),
 
     // ── SVC025 Full Body Massage ───────────────────────────────────
-    HSService(id:'SVC025', name:'Full Body Massage', icon:'💆', cat:'Beauty & Wellness', basePrice:0, groups:[
+    HSService(id:'SVC025', name:'Full Body Massage', icon:'💆', cat:'Beauty & Wellness', basePrice:799, groups:[
       HSGroup(key:'types', title:'Select Massage Type', style:'task', items:[
         HSOption(key:'swedish',     ico:'💆', name:'Swedish / Relaxation', price:0),
         HSOption(key:'deeptissue',  ico:'💪', name:'Deep Tissue',          price:0),
@@ -379,35 +379,35 @@ class HSCatalog {
     ]),
 
     // ── SVC026 Gym / Fitness Trainer ──────────────────────────────
-    HSService(id:'SVC026', name:'Gym / Fitness Trainer', icon:'💪', cat:'Beauty & Wellness', basePrice:0, groups:[
+    HSService(id:'SVC026', name:'Gym / Fitness Trainer', icon:'💪', cat:'Beauty & Wellness', basePrice:399, groups:[
       HSGroup(key:'visit', title:'Visit / Call-out Price', style:'bhk', items:[
         HSOption(key:'visit', name:'Trainer visit fee (work quoted on-site)', price:0),
       ]),
     ]),
 
     // ── SVC027 Doctor Visit ────────────────────────────────────────
-    HSService(id:'SVC027', name:'Doctor Visit at Home', icon:'👨‍⚕️', cat:'Health Services', basePrice:0, groups:[
+    HSService(id:'SVC027', name:'Doctor Visit at Home', icon:'👨‍⚕️', cat:'Health Services', basePrice:399, groups:[
       HSGroup(key:'visit', title:'Visit / Call-out Price', style:'bhk', items:[
         HSOption(key:'visit', name:'Doctor home visit fee', price:0),
       ]),
     ]),
 
     // ── SVC028 Nurse Visit ─────────────────────────────────────────
-    HSService(id:'SVC028', name:'Nurse Visit at Home', icon:'💉', cat:'Health Services', basePrice:0, groups:[
+    HSService(id:'SVC028', name:'Nurse Visit at Home', icon:'💉', cat:'Health Services', basePrice:299, groups:[
       HSGroup(key:'visit', title:'Visit / Call-out Price', style:'bhk', items:[
         HSOption(key:'visit', name:'Nurse home visit fee', price:0),
       ]),
     ]),
 
     // ── SVC029 Lab Test Collection ─────────────────────────────────
-    HSService(id:'SVC029', name:'Lab Test Collection', icon:'🧪', cat:'Health Services', basePrice:0, groups:[
+    HSService(id:'SVC029', name:'Lab Test Collection', icon:'🧪', cat:'Health Services', basePrice:49, groups:[
       HSGroup(key:'visit', title:'Visit / Call-out Price', style:'bhk', items:[
         HSOption(key:'visit', name:'Home collection visit fee', price:0),
       ]),
     ]),
 
     // ── SVC030 Babysitter / Nanny ──────────────────────────────────
-    HSService(id:'SVC030', name:'Babysitter / Nanny', icon:'👶', cat:'Care Services', basePrice:0, groups:[
+    HSService(id:'SVC030', name:'Babysitter / Nanny', icon:'👶', cat:'Care Services', basePrice:399, groups:[
       HSGroup(key:'care', title:'Care Type', style:'task', items:[
         HSOption(key:'half',      ico:'🌤️', name:'Half Day (4 hrs)',        price:0),
         HSOption(key:'fullday',   ico:'☀️',  name:'Full Day (8–10 hrs)',     price:0),
@@ -422,7 +422,7 @@ class HSCatalog {
     ]),
 
     // ── SVC031 Elderly Care ────────────────────────────────────────
-    HSService(id:'SVC031', name:'Elderly Care', icon:'🧓', cat:'Care Services', basePrice:0, groups:[
+    HSService(id:'SVC031', name:'Elderly Care', icon:'🧓', cat:'Care Services', basePrice:599, groups:[
       HSGroup(key:'care', title:'Care Package', style:'task', items:[
         HSOption(key:'companion', ico:'💬', name:'Companion Care (4 hrs)',  price:0),
         HSOption(key:'personal',  ico:'🛁', name:'Personal Care (4–6 hrs)', price:0),
@@ -441,14 +441,14 @@ class HSCatalog {
     ]),
 
     // ── SVC032 Gardener ────────────────────────────────────────────
-    HSService(id:'SVC032', name:'Gardener', icon:'🌱', cat:'Outdoor', basePrice:0, groups:[
+    HSService(id:'SVC032', name:'Gardener', icon:'🌱', cat:'Outdoor', basePrice:299, groups:[
       HSGroup(key:'visit', title:'Visit / Call-out Price', style:'bhk', items:[
         HSOption(key:'visit', name:'Visit fee (work quoted on-site)', price:0),
       ]),
     ]),
 
     // ── SVC033 Driver ──────────────────────────────────────────────
-    HSService(id:'SVC033', name:'Driver', icon:'🚕', cat:'Outdoor', basePrice:0, groups:[
+    HSService(id:'SVC033', name:'Driver', icon:'🚕', cat:'Outdoor', basePrice:249, groups:[
       HSGroup(key:'car', title:'Car Driver', style:'task', items:[
         HSOption(key:'local',      ico:'🏙️', name:'Local / City Trips',       price:0),
         HSOption(key:'fullday',    ico:'☀️',  name:'Full Day Driver (8 hrs)',   price:0),
@@ -487,7 +487,7 @@ class HSCatalog {
     ]),
 
     // ── SVC034 Security Guard & Bouncers ──────────────────────────
-    HSService(id:'SVC034', name:'Security Guard & Bouncers', icon:'🛡️', cat:'Security', basePrice:0, groups:[
+    HSService(id:'SVC034', name:'Security Guard & Bouncers', icon:'🛡️', cat:'Security', basePrice:799, groups:[
       HSGroup(key:'type', title:'Guard / Bouncer Type', style:'task', items:[
         HSOption(key:'daytime',       ico:'🌤️', name:'Daytime Guard (8-hr shift)',   price:0),
         HSOption(key:'nighttime',     ico:'🌙', name:'Night Guard (8-hr shift)',     price:0),

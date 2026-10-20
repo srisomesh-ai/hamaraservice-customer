@@ -44,6 +44,28 @@ const NotificationDetails _details = NotificationDetails(
   ),
 );
 
+// Time-sensitive events (quotes expire in 5 minutes, the provider is at the
+// door) wake the screen with a full-screen alert.
+const Set<String> _wakeEvents = {
+  'price_quoted', 'negotiation_final', 'service_started', 'completion_otp_ready',
+};
+
+const NotificationDetails _wakeDetails = NotificationDetails(
+  android: AndroidNotificationDetails(
+    _channelId,
+    _channelName,
+    channelDescription: _channelDesc,
+    importance: Importance.max,
+    priority: Priority.max,
+    playSound: true,
+    enableVibration: true,
+    visibility: NotificationVisibility.public,
+    fullScreenIntent: true,
+    category: AndroidNotificationCategory.reminder,
+    autoCancel: true,
+  ),
+);
+
 const InitializationSettings _initSettings = InitializationSettings(
   android: AndroidInitializationSettings('@mipmap/ic_launcher'),
 );
@@ -62,7 +84,9 @@ Future<bool> _showFromMessage(
       ? bookingId.hashCode & 0x7fffffff
       : (message.messageId ?? DateTime.now().toIso8601String()).hashCode &
           0x7fffffff;
-  await plugin.show(id, title.isEmpty ? 'HamaraService' : title, body, _details,
+  final details =
+      _wakeEvents.contains((data['event'] ?? '').toString()) ? _wakeDetails : _details;
+  await plugin.show(id, title.isEmpty ? 'HamaraService' : title, body, details,
       payload: bookingId);
   return true;
 }

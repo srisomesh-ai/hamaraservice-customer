@@ -8,6 +8,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../services/api_service.dart';
 import '../../utils/booking_format.dart';
 import '../../utils/sound_manager.dart';
+import '../../utils/support.dart';
 import '../../utils/theme.dart';
 import 'review_screen.dart';
 
@@ -43,6 +44,19 @@ class _BookingStatusScreenState extends State<BookingStatusScreen>
   bool _fetching = false;
   final DateTime _openedAt = DateTime.now();
 
+  // Radar: real nearby providers, widening the search 2 → 5 → 10 → 20 km
+  static const _nbRadii = [2, 5, 10, 20];
+  static const _nbEvery = Duration(seconds: 7);
+  Timer? _nbTimer;
+  int _nbStep = 0;
+  int _nbRadius = 2;
+  bool _nbScanned = false;
+  List<Map<String, dynamic>> _nearby = [];
+
+  // Quote window: confirm within quote_expires_in seconds
+  DateTime? _quoteDeadline;
+  Timer? _quoteTick;
+
   late final AnimationController _sweepCtrl;
   late final Razorpay _razorpay;
   String _pendingOrderId = '';
@@ -73,6 +87,8 @@ class _BookingStatusScreenState extends State<BookingStatusScreen>
     }
     WidgetsBinding.instance.removeObserver(this);
     _poll?.cancel();
+    _nbTimer?.cancel();
+    _quoteTick?.cancel();
     _sweepCtrl.dispose();
     _razorpay.clear();
     super.dispose();
@@ -83,6 +99,7 @@ class _BookingStatusScreenState extends State<BookingStatusScreen>
     if (state == AppLifecycleState.paused) {
       _poll?.cancel();
       _poll = null;
+      _stopNearby(); // restarted by _refresh() on resume
     } else if (state == AppLifecycleState.resumed) {
       _refresh();
       _startPolling();
@@ -115,6 +132,12 @@ class _BookingStatusScreenState extends State<BookingStatusScreen>
       });
       _lastStatus = _status;
       if (prev.isNotEmpty && prev != _lastStatus) _onStatusChanged(prev, _lastStatus);
+      _setQuoteDeadline(b);
+      if (_status == BookingStatus.searching) {
+        _startNearby(b);
+      } else {
+        _stopNearby();
+      }
       if (_isTerminal) {
         _poll?.cancel();
         _poll = null;
@@ -125,6 +148,89 @@ class _BookingStatusScreenState extends State<BookingStatusScreen>
     } finally {
       _fetching = false;
     }
+  }
+
+  // ── Radar: nearby providers ─────────────────────────────
+  void _startNearby(Map<String, dynamic> b) {
+    if (_nbTimer != null) return;
+    _nbStep = 0;
+    _nbScanned = false;
+    _nearby = [];
+    _scanNearby();
+    _nbTimer = Timer.periodic(_nbEvery, (_) => _scanNearby());
+  }
+
+  void _stopNearby() {
+    _nbTimer?.cancel();
+    _nbTimer = null;
+  }
+
+  Future<void> _scanNearby() async {
+    final b = _b;
+    if (b == null) return;
+    final r = _nbRadii[min(_nbStep, _nbRadii.length - 1)];
+    try {
+      final list = await ApiService.getNearbyProviders(
+        svcId: asStr(b['svc_id']),
+        radiusKm: r.toDouble(),
+        lat: asDouble(b['lat']) ?? 0,
+        lng: asDouble(b['lng']) ?? 0,
+        city: asStr(b['city']),
+      );
+      if (!mounted || _nbTimer == null) return;
+      setState(() {
+        _nearby = list;
+        _nbRadius = r;
+        _nbScanned = true;
+      });
+      if (list.isEmpty && _nbStep < _nbRadii.length - 1) _nbStep++;
+    } on ApiException catch (e) {
+      debugPrint('Nearby providers failed: ${e.message}');
+    }
+  }
+
+  // ── Quote countdown ─────────────────────────────────────
+  /// Recomputed on every poll from quote_expires_in (seconds).
+  void _setQuoteDeadline(Map<String, dynamic> b) {
+    final st = asStr(b['status']);
+    final live = (st == BookingStatus.priceQuoted ||
+            st == BookingStatus.negotiationFinal) &&
+        b['quote_expires_in'] != null;
+    if (live) {
+      _quoteDeadline =
+          DateTime.now().add(Duration(seconds: asInt(b['quote_expires_in'])));
+      _quoteTick ??= Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted) setState(() {});
+      });
+    } else {
+      _quoteDeadline = null;
+      _quoteTick?.cancel();
+      _quoteTick = null;
+    }
+  }
+
+  Widget _quoteCountdown() {
+    final d = _quoteDeadline;
+    if (d == null) return const SizedBox.shrink();
+    final left = max(0, (d.difference(DateTime.now()).inMilliseconds / 1000).round());
+    final expired = left <= 0;
+    final color = (expired || left <= 60) ? const Color(0xFFB91C1C) : const Color(0xFFB45309);
+    final text = expired
+        ? '⌛ Quote expired — finding another provider…'
+        : '⏳ Confirm within ${left ~/ 60}:${(left % 60).toString().padLeft(2, '0')} — otherwise we find another provider';
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(top: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Text(text,
+          textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: color)),
+    );
   }
 
   void _onStatusChanged(String from, String to) {
@@ -455,6 +561,8 @@ class _BookingStatusScreenState extends State<BookingStatusScreen>
                 const SizedBox(height: 14),
                 _cancelButton(),
               ],
+              const SizedBox(height: 8),
+              _helpLink(),
               const SizedBox(height: 24),
             ],
           ),
@@ -490,78 +598,106 @@ class _BookingStatusScreenState extends State<BookingStatusScreen>
   Widget _buildSearching(Map<String, dynamic> b) {
     final waitingLong =
         DateTime.now().difference(_openedAt) > _searchPatience;
+    final n = _nearby.length;
+    final radarText = !_nbScanned
+        ? 'Scanning for providers near you…'
+        : n > 0
+            ? '✅ $n provider${n > 1 ? 's' : ''} available within $_nbRadius km — waiting for a quote'
+            : 'Searching within $_nbRadius km…${_nbRadius >= _nbRadii.last ? ' No provider free right now, we keep looking.' : ''}';
     return SafeArea(
       child: Column(children: [
-        const SizedBox(height: 24),
-        SizedBox(
-          width: 220,
-          height: 220,
-          child: AnimatedBuilder(
-            animation: _sweepCtrl,
-            builder: (_, __) => CustomPaint(
-                painter: _RadarPainter(_sweepCtrl.value * 2 * pi)),
-          ),
-        ),
-        const SizedBox(height: 20),
-        const Text('Looking for a provider',
-            style: TextStyle(
-                fontSize: 22, fontWeight: FontWeight.w800, color: Colors.white)),
-        const SizedBox(height: 8),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 32),
-          child: Text(
-            'Your ${asStr(b['svc_name'])} request is visible to available providers near you. '
-            'You will see their price here as soon as one accepts.',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-                fontSize: 13, color: Colors.white.withOpacity(0.6), height: 1.5),
-          ),
-        ),
-        const SizedBox(height: 20),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          child: Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.06),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.white.withOpacity(0.1)),
-            ),
+        Expanded(
+          child: SingleChildScrollView(
             child: Column(children: [
-              _darkRow(Icons.calendar_today_rounded, slotLabel(b)),
-              const SizedBox(height: 6),
-              _darkRow(Icons.location_on_rounded, asStr(b['address'])),
-              if (asInt(b['est_price']) > 0) ...[
-                const SizedBox(height: 6),
-                _darkRow(Icons.currency_rupee_rounded,
-                    'Estimate ₹${asInt(b['est_price'])} — final price agreed with provider'),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: 180,
+                height: 180,
+                child: AnimatedBuilder(
+                  animation: _sweepCtrl,
+                  builder: (_, __) => CustomPaint(
+                      painter: _RadarPainter(_sweepCtrl.value * 2 * pi)),
+                ),
+              ),
+              const SizedBox(height: 16),
+              const Text('Looking for a provider',
+                  style: TextStyle(
+                      fontSize: 22, fontWeight: FontWeight.w800, color: Colors.white)),
+              const SizedBox(height: 8),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 32),
+                child: Text(
+                  'Your ${asStr(b['svc_name'])} request is visible to available providers near you. '
+                  'You will see their price here as soon as one accepts.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                      fontSize: 13, color: Colors.white.withOpacity(0.6), height: 1.5),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Text(radarText,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: n > 0 ? const Color(0xFF00FF88) : Colors.white.withOpacity(0.8))),
+              ),
+              if (n > 0) ...[
+                const SizedBox(height: 12),
+                ..._nearby.take(5).map(_nearbyTile),
               ],
+              const SizedBox(height: 16),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.06),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.white.withOpacity(0.1)),
+                  ),
+                  child: Column(children: [
+                    _darkRow(Icons.calendar_today_rounded, slotLabel(b)),
+                    const SizedBox(height: 6),
+                    _darkRow(Icons.location_on_rounded, asStr(b['address'])),
+                    if (asInt(b['est_price']) > 0) ...[
+                      const SizedBox(height: 6),
+                      _darkRow(Icons.currency_rupee_rounded,
+                          'Estimate ₹${asInt(b['est_price'])} — final price agreed with provider'),
+                    ],
+                  ]),
+                ),
+              ),
+              if (waitingLong) ...[
+                const SizedBox(height: 14),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: AppColors.yellow.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppColors.yellow.withOpacity(0.4)),
+                    ),
+                    child: const Text(
+                      'No provider has responded yet. Your request stays open and we will keep '
+                      'looking — you will get a notification when a provider sends a price. '
+                      'You can safely leave this screen.',
+                      style: TextStyle(fontSize: 12, color: AppColors.yellow, height: 1.5),
+                    ),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 8),
+              _helpLink(dark: true),
+              const SizedBox(height: 8),
             ]),
           ),
         ),
-        if (waitingLong) ...[
-          const SizedBox(height: 14),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: AppColors.yellow.withOpacity(0.12),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: AppColors.yellow.withOpacity(0.4)),
-              ),
-              child: const Text(
-                'No provider has responded yet. Your request stays open and we will keep '
-                'looking — you will get a notification when a provider sends a price. '
-                'You can safely leave this screen.',
-                style: TextStyle(fontSize: 12, color: AppColors.yellow, height: 1.5),
-              ),
-            ),
-          ),
-        ],
-        const Spacer(),
         Padding(
-          padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
           child: Row(children: [
             Expanded(
               child: OutlinedButton(
@@ -596,6 +732,65 @@ class _BookingStatusScreenState extends State<BookingStatusScreen>
     );
   }
 
+  /// One provider found by the radar: name, rating, distance, price range.
+  Widget _nearbyTile(Map<String, dynamic> p) {
+    final name = asStr(p['name']).isEmpty ? 'Provider' : asStr(p['name']);
+    final rating = asDouble(p['rating']) ?? 0;
+    final dist = asDouble(p['distance_km']);
+    final mn = asInt(p['min_price']);
+    final mx = asInt(p['max_price']);
+    final price = mn > 0 ? '₹$mn${mx > mn ? '–$mx' : ''}' : '';
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.08),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.white.withOpacity(0.12)),
+        ),
+        child: Row(children: [
+          CircleAvatar(
+            radius: 18,
+            backgroundColor: AppColors.teal,
+            child: Text(name.characters.first.toUpperCase(),
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800)),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                      fontSize: 14, fontWeight: FontWeight.w800, color: Colors.white)),
+              Text(
+                  '${rating > 0 ? '⭐ ${rating.toStringAsFixed(1)}' : '⭐ New'}'
+                  '${dist != null ? ' · 📍 ${dist.toStringAsFixed(1)} km' : ''}',
+                  style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.65))),
+            ]),
+          ),
+          if (price.isNotEmpty)
+            Text(price,
+                style: const TextStyle(
+                    fontSize: 13, fontWeight: FontWeight.w800, color: Color(0xFF00FF88))),
+        ]),
+      ),
+    );
+  }
+
+  /// "Need help with this booking?" — WhatsApp support with the booking id.
+  Widget _helpLink({bool dark = false}) => Center(
+        child: TextButton(
+          onPressed: () => openSupport(context, about: 'Booking $_id.'),
+          child: Text('💬 Need help with this booking? WhatsApp us',
+              style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                  color: dark ? const Color(0xFF7FD3E0) : AppColors.teal)),
+        ),
+      );
+
   Widget _darkRow(IconData icon, String text) => Row(children: [
         Icon(icon, size: 15, color: Colors.white.withOpacity(0.5)),
         const SizedBox(width: 8),
@@ -613,6 +808,7 @@ class _BookingStatusScreenState extends State<BookingStatusScreen>
       const SizedBox(height: 14),
       _priceCard('QUOTED PRICE', quote,
           'Includes the work you selected. You pay only after the service.'),
+      _quoteCountdown(),
       const SizedBox(height: 14),
       _primaryButton('Accept ₹$quote', _acceptPrice),
       const SizedBox(height: 10),
@@ -646,6 +842,7 @@ class _BookingStatusScreenState extends State<BookingStatusScreen>
       const SizedBox(height: 14),
       _priceCard('FINAL OFFER', fp,
           'This is the provider\'s final price — no further negotiation.'),
+      _quoteCountdown(),
       const SizedBox(height: 14),
       _primaryButton('Accept ₹$fp', _acceptPrice),
       const SizedBox(height: 10),
@@ -677,9 +874,19 @@ class _BookingStatusScreenState extends State<BookingStatusScreen>
   // ── active ──────────────────────────────────────────────
   List<Widget> _buildActive(Map<String, dynamic> b) {
     final otp = asStr(b['completion_otp']);
+    final started = asStr(b['started_at']);
+    final elapsed = fmtWorkDuration(started);
     return [
       _infoBox(Icons.handyman_rounded,
           'Job in progress. Your provider has started the work.', AppColors.brand),
+      if (parseServerTime(started) != null) ...[
+        const SizedBox(height: 10),
+        _infoBox(
+            Icons.schedule_rounded,
+            '▶️ Work started: ${fmtServerTime(started)}'
+            '${elapsed.isNotEmpty ? ' · $elapsed so far' : ''}',
+            AppColors.teal),
+      ],
       const SizedBox(height: 14),
       if (otp.isNotEmpty)
         _otpCard(
@@ -695,16 +902,33 @@ class _BookingStatusScreenState extends State<BookingStatusScreen>
             'It will appear here — share it only when you are satisfied.',
             AppColors.muted),
       const SizedBox(height: 14),
-      _providerCard(b, showContact: true),
+      _providerCard(b, showContact: true, callable: false),
+      const SizedBox(height: 10),
+      SizedBox(
+        width: double.infinity,
+        child: ElevatedButton(
+          onPressed: null, // no calls while the provider is working
+          style: ElevatedButton.styleFrom(
+            minimumSize: const Size(double.infinity, 48),
+            disabledBackgroundColor: const Color(0xFFE5E9EA),
+            disabledForegroundColor: const Color(0xFF7B8A8E),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          ),
+          child: const Text('📞 Calling off — provider is working',
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700)),
+        ),
+      ),
     ];
   }
 
   // ── completed ───────────────────────────────────────────
   List<Widget> _buildCompleted(Map<String, dynamic> b) {
     final amount = bookingPrice(b);
+    final times = _workTimes(b);
     if (isPaid(b)) {
       final rating = asInt(b['rating']);
       return [
+        if (times != null) ...[times, const SizedBox(height: 14)],
         _infoBox(
             Icons.check_circle_rounded,
             'Paid ₹$amount${asStr(b['payment_method']).isNotEmpty ? ' (${asStr(b['payment_method'])})' : ''}. Thank you!',
@@ -723,11 +947,14 @@ class _BookingStatusScreenState extends State<BookingStatusScreen>
               AppColors.yellow),
       ];
     }
+    final cash = cashAllowed(b);
     return [
       _infoBox(Icons.task_alt_rounded,
           'Service completed. Please pay your provider.', AppColors.green),
+      if (times != null) ...[const SizedBox(height: 14), times],
       const SizedBox(height: 14),
-      _priceCard('AMOUNT DUE', amount, 'Pay online, or pay the provider in cash.'),
+      _priceCard('AMOUNT DUE', amount,
+          cash ? 'Pay online, or pay the provider in cash.' : 'Pay online to complete this booking.'),
       const SizedBox(height: 14),
       _primaryButton('Pay ₹$amount online', _payOnline),
       const SizedBox(height: 6),
@@ -735,7 +962,11 @@ class _BookingStatusScreenState extends State<BookingStatusScreen>
           textAlign: TextAlign.center,
           style: TextStyle(fontSize: 11, color: AppColors.muted)),
       const SizedBox(height: 12),
-      if (_cashChosen)
+      if (!cash)
+        _infoBox(Icons.credit_card_rounded,
+            '💳 Online payment only for this booking — cash is not available.',
+            const Color(0xFF9A4C00))
+      else if (_cashChosen)
         _infoBox(
             Icons.payments_rounded,
             'Pay ₹$amount in cash to your provider. This screen updates automatically '
@@ -760,6 +991,24 @@ class _BookingStatusScreenState extends State<BookingStatusScreen>
       const SizedBox(height: 14),
       _primaryButton('Back to home', () async => Navigator.pop(context)),
     ];
+  }
+
+  /// Work started / closed / duration card, or null when not started.
+  Widget? _workTimes(Map<String, dynamic> b) {
+    final s = asStr(b['started_at']);
+    final c = asStr(b['completed_at']);
+    final hasS = parseServerTime(s) != null;
+    final hasC = parseServerTime(c) != null;
+    if (!hasS && !hasC) return null;
+    final dur = (hasS && hasC) ? fmtWorkDuration(s, c) : '';
+    return _infoBox(
+        Icons.schedule_rounded,
+        [
+          if (hasS) '▶️ Work started: ${fmtServerTime(s)}',
+          if (hasC) '⏹️ Work closed: ${fmtServerTime(c)}',
+          if (dur.isNotEmpty) '⏱️ Duration: $dur',
+        ].join('\n'),
+        AppColors.teal);
   }
 
   // ── Building blocks ─────────────────────────────────────
@@ -797,7 +1046,8 @@ class _BookingStatusScreenState extends State<BookingStatusScreen>
     );
   }
 
-  Widget _providerCard(Map<String, dynamic> b, {bool showContact = false}) {
+  Widget _providerCard(Map<String, dynamic> b,
+      {bool showContact = false, bool callable = true}) {
     final name = asStr(b['provider_name']).isEmpty ? 'Your provider' : asStr(b['provider_name']);
     final rating = asDouble(b['provider_rating']) ?? 0;
     final reviews = asInt(b['provider_reviews']);
@@ -837,7 +1087,7 @@ class _BookingStatusScreenState extends State<BookingStatusScreen>
               Text(phone, style: const TextStyle(fontSize: 12, color: AppColors.muted)),
           ]),
         ),
-        if (showContact && phone.isNotEmpty)
+        if (showContact && callable && phone.isNotEmpty)
           IconButton.filled(
             onPressed: () async {
               HapticFeedback.mediumImpact();
@@ -946,6 +1196,17 @@ class _BookingStatusScreenState extends State<BookingStatusScreen>
           const SizedBox(height: 6),
           _row(Icons.person_rounded,
               '${asStr(b['contact_name'])} ${asStr(b['contact_phone'])}'.trim()),
+        ],
+        if (parseServerTime(b['started_at']) != null) ...[
+          const SizedBox(height: 6),
+          _row(Icons.play_circle_outline_rounded,
+              'Work started: ${fmtServerTime(b['started_at'])}'),
+        ],
+        if (parseServerTime(b['completed_at']) != null) ...[
+          const SizedBox(height: 6),
+          _row(Icons.stop_circle_outlined,
+              'Work closed: ${fmtServerTime(b['completed_at'])}'
+              '${parseServerTime(b['started_at']) != null ? ' (${fmtWorkDuration(b['started_at'], b['completed_at'])})' : ''}'),
         ],
       ]),
     );

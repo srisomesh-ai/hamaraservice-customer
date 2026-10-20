@@ -25,6 +25,7 @@ class ServiceScreen extends StatefulWidget {
 class _ServiceScreenState extends State<ServiceScreen> {
   HSService? _svc;
   Map<String, int> _prices = {};
+  Map<String, dynamic>? _range; // approved providers' {min, max, provider_count}
   final Set<String> _selectedTasks = {};    // 'task_sweep', 'task_dust' ...
   final Map<String, String> _selectedBhk = {}; // groupKey → optionKey
   bool _loading = true;
@@ -35,6 +36,7 @@ class _ServiceScreenState extends State<ServiceScreen> {
   Future<void> _load() async {
     _svc = HSCatalog.getById(widget.svcId);
     if (_svc == null) { setState(() => _loading = false); return; }
+    _loadRange(); // independent of the reference prices
     try {
       // Reference prices from the API: {groupKey: {optionKey: price}}
       final grouped = await ApiService.getServicePrices(widget.svcId);
@@ -63,6 +65,18 @@ class _ServiceScreenState extends State<ServiceScreen> {
       }
     }
     if (mounted) setState(() => _loading = false);
+  }
+
+  Future<void> _loadRange() async {
+    try {
+      final ranges = await ApiService.getServicePriceRanges();
+      final r = ranges[widget.svcId];
+      if (r is Map && mounted) {
+        setState(() => _range = Map<String, dynamic>.from(r));
+      }
+    } on ApiException catch (e) {
+      debugPrint('Price range failed: ${e.message}');
+    }
   }
 
   int _p(String groupKey, String optKey) {
@@ -195,6 +209,10 @@ class _ServiceScreenState extends State<ServiceScreen> {
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(16, 20, 16, 110),
             sliver: SliverList(delegate: SliverChildListDelegate([
+              if (priceRangeText(_range).isNotEmpty) ...[
+                _buildRangeCard(),
+                const SizedBox(height: 16),
+              ],
               if (_isVisitOnly) ...[
                 _buildVisitCard(),
                 const SizedBox(height: 16),
@@ -207,6 +225,25 @@ class _ServiceScreenState extends State<ServiceScreen> {
         ]),
         // ── BOTTOM BAR (always on top) ───────────────────────
         Positioned(bottom: 0, left: 0, right: 0, child: _buildBottomBar()),
+      ]));
+  }
+
+  // ── PROVIDER PRICE RANGE ──────────────────────────────────────
+  Widget _buildRangeCard() {
+    final count = asInt(_range?['provider_count']);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFeef7f0),
+        border: Border.all(color: const Color(0xFFcfe9d6)),
+        borderRadius: BorderRadius.circular(14)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('👷 ${providerCountLabel(count)} charge ${priceRangeText(_range)}',
+          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: Color(0xFF1b7a3a))),
+        const SizedBox(height: 4),
+        const Text('Estimate below · the provider confirms the final price before the job starts.',
+          style: TextStyle(fontSize: 12.5, color: AppColors.muted)),
       ]));
   }
 

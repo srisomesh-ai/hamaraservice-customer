@@ -118,6 +118,17 @@ class _CompletedBookingsScreenState extends State<CompletedBookingsScreen> {
             const SizedBox(height: 5),
             _row(Icons.person_rounded, 'Provider: $provider'),
           ],
+          if (parseServerTime(b['started_at']) != null) ...[
+            const SizedBox(height: 5),
+            _row(Icons.play_circle_outline_rounded,
+                'Work started: ${fmtServerTime(b['started_at'])}'),
+          ],
+          if (parseServerTime(b['completed_at']) != null) ...[
+            const SizedBox(height: 5),
+            _row(Icons.stop_circle_outlined,
+                'Work closed: ${fmtServerTime(b['completed_at'])}'
+                '${parseServerTime(b['started_at']) != null ? ' (${fmtWorkDuration(b['started_at'], b['completed_at'])})' : ''}'),
+          ],
           if (rating > 0) ...[
             const SizedBox(height: 5),
             _row(Icons.star_rounded, 'You rated $rating★'),

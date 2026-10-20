@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../../services/api_service.dart';
 import '../../services/firebase_service.dart';
 import '../../utils/booking_format.dart';
+import '../../utils/support.dart';
 import '../../utils/theme.dart';
 import '../login_screen.dart';
 
@@ -278,6 +279,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ? const SizedBox(width: 22, height: 22,
                       child: CircularProgressIndicator(strokeWidth: 2.5, valueColor: AlwaysStoppedAnimation(Colors.white)))
                   : const Text('💾 Save Changes', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+            ),
+          ),
+
+          const SizedBox(height: 12),
+
+          // Support (WhatsApp, e-mail fallback)
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () => openSupport(context),
+              icon: const Icon(Icons.support_agent_rounded, color: AppColors.teal),
+              label: const Text('💬 WhatsApp Support',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.teal)),
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size(double.infinity, 52),
+                side: const BorderSide(color: AppColors.teal),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              ),
             ),
           ),
 

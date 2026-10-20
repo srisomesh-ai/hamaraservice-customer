@@ -197,7 +197,8 @@ class ApiService {
 
   // ── SERVICES ────────────────────────────────────────────
 
-  /// Provider price ranges per service: {svcId: {min, max, provider_count}}
+  /// Provider price ranges per service:
+  /// {svcId: {min, max, provider_count, admin_prices?}}
   static Future<Map<String, dynamic>> getServicePriceRanges(
       {String? city}) async {
     final params = <String, String>{'action': 'price_ranges'};
@@ -209,6 +210,47 @@ class ApiService {
   static Future<Map<String, dynamic>> getServicePrices(String svcId) async {
     return _map(await _get('services.php',
         params: {'action': 'prices', 'id': svcId}));
+  }
+
+  // ── PROVIDERS (public) ──────────────────────────────────
+
+  /// Online, approved providers offering [svcId] within [radiusKm] of the
+  /// booking (providers.php?action=nearby). Each row: id, name, rating
+  /// (string), distance_km (number or null), min_price, max_price.
+  static Future<List<Map<String, dynamic>>> getNearbyProviders({
+    required String svcId,
+    required double radiusKm,
+    double lat = 0,
+    double lng = 0,
+    String city = '',
+  }) async {
+    return _list(await _get('providers.php', params: {
+      'action': 'nearby',
+      'svc_id': svcId,
+      'radius': radiusKm.toStringAsFixed(0),
+      'lat': lat.toString(),
+      'lng': lng.toString(),
+      'city': city,
+    }));
+  }
+
+  // ── SITE SETTINGS (public) ──────────────────────────────
+
+  static Map<String, dynamic>? _siteConfig;
+
+  /// Public site settings (site.php?action=config): support_whatsapp,
+  /// support_email, customer_app_url, provider_app_url, web_login_mode.
+  /// Cached for the app session; returns {} when unreachable.
+  static Future<Map<String, dynamic>> getSiteConfig() async {
+    final cached = _siteConfig;
+    if (cached != null) return cached;
+    try {
+      final cfg = _map(await _get('site.php', params: {'action': 'config'}));
+      _siteConfig = cfg;
+      return cfg;
+    } on ApiException {
+      return <String, dynamic>{};
+    }
   }
 
   // ── BOOKINGS ────────────────────────────────────────────

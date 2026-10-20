@@ -30,7 +30,7 @@ class _HomeScreenState extends State<HomeScreen>
   final _searchCtrl = TextEditingController();
   String _searchQuery = '';
   String _city = 'Your City';
-  Map<String, Map<String,int>> _providerPriceRanges = {}; // svcId → {min, max}
+  Map<String, Map<String,int>> _providerPriceRanges = {}; // svcId → {min, max, provider_count}
   User? _user;
   int _selectedCat = 0;
 
@@ -201,6 +201,7 @@ class _HomeScreenState extends State<HomeScreen>
           parsed[svcId] = {
             'min': asInt(val['min']),
             'max': asInt(val['max']),
+            'provider_count': asInt(val['provider_count']),
           };
         }
       });
@@ -749,12 +750,17 @@ class _HomeScreenState extends State<HomeScreen>
                       final svcId = svc['id']?.toString() ?? '';
                       final range = _providerPriceRanges[svcId];
                       if (range == null) return const SizedBox.shrink();
+                      // Approved providers' own range ("₹300 – ₹900 · 3 providers")
+                      final rt = priceRangeText(range);
+                      final count = range['provider_count'] ?? 0;
                       final mn = range['min'] ?? 0;
                       final mx = range['max'] ?? 0;
-                      if (mn == 0 && mx == 0) return const SizedBox.shrink();
-                      final label = mn == mx || mx == 0
-                          ? '₹$mn'
-                          : mn == 0 ? 'up to ₹$mx' : '₹$mn–₹$mx';
+                      if (rt.isEmpty && mn == 0 && mx == 0) return const SizedBox.shrink();
+                      final label = rt.isNotEmpty
+                          ? '$rt\n${providerCountLabel(count)}'
+                          : mn == mx || mx == 0
+                              ? '₹$mn'
+                              : mn == 0 ? 'up to ₹$mx' : '₹$mn–₹$mx';
                       return Container(
                         margin: const EdgeInsets.only(top: 3),
                         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -762,6 +768,9 @@ class _HomeScreenState extends State<HomeScreen>
                           color: Colors.white.withOpacity(0.2),
                           borderRadius: BorderRadius.circular(100)),
                         child: Text(label,
+                          textAlign: TextAlign.center,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
                             fontSize: 9, fontWeight: FontWeight.w800, color: Colors.white)),
                       );

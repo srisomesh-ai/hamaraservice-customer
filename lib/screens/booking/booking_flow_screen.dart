@@ -8,7 +8,21 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../services/api_service.dart';
 import '../../utils/booking_format.dart';
 import '../../utils/theme.dart';
+import '../map_picker_screen.dart';
 import 'booking_status_screen.dart';
+
+/// A "When?" option: Now / ASAP, or a preferred window on a chosen day.
+/// Same options and slot_time format as the website (app/customer.html).
+class _TimeWindow {
+  final String key;   // 'Now / ASAP' | 'Morning' | 'Afternoon' | 'Evening'
+  final String emoji;
+  final String sub;   // '8 AM – 12 PM'
+  final int from;     // window start hour (0 for ASAP)
+  final int to;       // window end hour (0 for ASAP)
+  const _TimeWindow(this.key, this.emoji, this.sub, [this.from = 0, this.to = 0]);
+  bool get isAsap => to == 0;
+  String get label => '$emoji $key';
+}
 
 class BookingFlowScreen extends StatefulWidget {
   final Map<String, dynamic> service;
@@ -26,8 +40,6 @@ class BookingFlowScreen extends StatefulWidget {
 
 class _BookingFlowScreenState extends State<BookingFlowScreen> {
   int _step = 0;
-  DateTime _selectedDate = DateTime.now().add(const Duration(days: 1));
-  // ^ default tomorrow; today is allowed but past slots are disabled
   final _addressCtrl = TextEditingController();
   final _landmarkCtrl = TextEditingController();
   final _nameCtrl = TextEditingController();
@@ -36,37 +48,93 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
   bool _loading = false;
   double? _customerLat;
   double? _customerLng;
+  bool _pinnedOnMap = false;
   String _city = '';
 
-  final List<String> _timeSlots = [
-    '07:00 AM','08:00 AM','09:00 AM','10:00 AM',
-    '11:00 AM','12:00 PM','01:00 PM','02:00 PM',
-    '03:00 PM','04:00 PM','05:00 PM','06:00 PM',
+  // ── When? ──
+  static const _asap = 'Now / ASAP';
+  static const List<_TimeWindow> _windows = [
+    _TimeWindow(_asap, '⚡', 'Nearest free provider'),
+    _TimeWindow('Morning', '🌅', '8 AM – 12 PM', 8, 12),
+    _TimeWindow('Afternoon', '☀️', '12 – 4 PM', 12, 16),
+    _TimeWindow('Evening', '🌇', '4 – 8 PM', 16, 20),
   ];
-  String _selectedSlot = '09:00 AM';
+  String _selWindow = _asap;
+  int _selDay = 0;     // 0 = today, 1 = tomorrow, 2 = day after
+  String _selHour = ''; // optional, e.g. '9 AM'
 
-  static bool _sameDay(DateTime a, DateTime b) =>
-      a.year == b.year && a.month == b.month && a.day == b.day;
+  _TimeWindow get _window =>
+      _windows.firstWhere((w) => w.key == _selWindow, orElse: () => _windows.first);
 
-  /// Start time of a slot like '09:00 AM' on [day].
-  static DateTime _slotStart(DateTime day, String slot) {
-    final m = RegExp(r'^(\d{1,2}):(\d{2})\s*(AM|PM)$').firstMatch(slot.trim());
-    if (m == null) return DateTime(day.year, day.month, day.day);
-    var h = int.parse(m.group(1)!) % 12;
-    if (m.group(3) == 'PM') h += 12;
-    return DateTime(day.year, day.month, day.day, h, int.parse(m.group(2)!));
+  DateTime _day(int offset) {
+    final n = DateTime.now();
+    return DateTime(n.year, n.month, n.day + offset);
   }
 
-  /// A slot is selectable if it starts at least 30 minutes from now.
-  bool _slotAvailable(String slot) {
-    if (!_sameDay(_selectedDate, DateTime.now())) return true;
-    return _slotStart(_selectedDate, slot)
-        .isAfter(DateTime.now().add(const Duration(minutes: 30)));
+  static String _hourLabel(int h) => '${h % 12 == 0 ? 12 : h % 12} ${h < 12 ? 'AM' : 'PM'}';
+
+  /// Today a window needs at least 1 h left; later days are always open.
+  bool _windowOpen(_TimeWindow w, int day) =>
+      w.isAsap || day > 0 || DateTime.now().hour < w.to - 1;
+
+  /// Hours offered for the chosen window/day (past hours of today hidden).
+  List<String> get _hours {
+    final w = _window;
+    if (w.isAsap) return const [];
+    final now = DateTime.now().hour;
+    return [
+      for (var h = w.from; h < w.to; h++)
+        if (!(_selDay == 0 && h <= now)) _hourLabel(h),
+    ];
   }
 
-  void _fixSelectedSlot() {
-    if (_selectedSlot.isNotEmpty && _slotAvailable(_selectedSlot)) return;
-    _selectedSlot = _timeSlots.firstWhere(_slotAvailable, orElse: () => '');
+  void _pickWindow(String key) {
+    HapticFeedback.selectionClick();
+    setState(() {
+      _selWindow = key;
+      _selHour = '';
+      final w = _window;
+      if (!w.isAsap && _selDay == 0 && !_windowOpen(w, 0)) _selDay = 1;
+    });
+  }
+
+  void _pickDay(int i) {
+    HapticFeedback.selectionClick();
+    setState(() {
+      _selDay = i;
+      if (!_windowOpen(_window, i)) _selWindow = _asap;
+      if (!_hours.contains(_selHour)) _selHour = '';
+    });
+  }
+
+  String _dayName(int i) {
+    if (i == 0) return 'Today';
+    if (i == 1) return 'Tomorrow';
+    const wd = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    const mo = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    final d = _day(i);
+    return '${wd[d.weekday - 1]}, ${d.day} ${mo[d.month - 1]}';
+  }
+
+  /// slot_date: the chosen day (today for ASAP), YYYY-MM-DD.
+  String get _slotDate {
+    final d = _day(_window.isAsap ? 0 : _selDay);
+    return '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+  }
+
+  /// slot_time, exactly like the web: 'Now / ASAP' or
+  /// 'Morning (8 AM – 12 PM) · 9 AM' (the hour part is optional).
+  String get _slotTime {
+    final w = _window;
+    if (w.isAsap) return _asap;
+    return '${w.key} (${w.sub})${_selHour.isNotEmpty ? ' · $_selHour' : ''}';
+  }
+
+  String get _whenSummary {
+    final w = _window;
+    if (w.isAsap) return '⚡ Now / ASAP — nearest available provider';
+    return '${_dayName(_selDay)}, ${w.key} (${w.sub})${_selHour.isNotEmpty ? ' · around $_selHour' : ''}';
   }
 
   @override
@@ -152,6 +220,7 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
         // reverse geocoding is optional
       }
 
+      if (_pinnedOnMap) return; // a map pin is more exact than GPS
       if (mounted) {
         setState(() {
           _customerLat = pos.latitude;
@@ -176,6 +245,29 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
     }
   }
 
+  /// Customer pins the service location on a map (more exact than GPS).
+  Future<void> _pinOnMap() async {
+    HapticFeedback.selectionClick();
+    final r = await MapPickerScreen.open(context,
+        lat: _customerLat, lng: _customerLng);
+    if (r == null || !mounted) return;
+    setState(() {
+      _customerLat = r.lat;
+      _customerLng = r.lng;
+      _pinnedOnMap = true;
+      if (r.address.isNotEmpty) _addressCtrl.text = r.address;
+      if (r.city.isNotEmpty) _city = r.city;
+    });
+    try {
+      await ApiService.updateCustomer({
+        'lat': r.lat, 'lng': r.lng,
+        if (r.city.isNotEmpty) 'city': r.city,
+      });
+    } on ApiException catch (e) {
+      debugPrint('Saving pinned location failed: ${e.message}');
+    }
+  }
+
   void _openMapView() {
     if (_customerLat == null || _customerLng == null) return;
     // Open Google Maps at detected location so user can verify
@@ -183,13 +275,10 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
         'https://www.google.com/maps/search/?api=1&query=$_customerLat,$_customerLng'));
   }
 
-  String get _slotDate =>
-      '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}';
-
   bool _validateStep(int step) {
     if (step == 0) {
-      if (_selectedSlot.isEmpty || !_slotAvailable(_selectedSlot)) {
-        _showError('Please pick an available time slot');
+      if (!_windowOpen(_window, _selDay)) {
+        _showError('This time window is over for today — pick another day or time');
         return false;
       }
     } else if (step == 1) {
@@ -234,7 +323,7 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
         lat:          _customerLat ?? 0,
         lng:          _customerLng ?? 0,
         slotDate:     _slotDate,
-        slotTime:     _selectedSlot,
+        slotTime:     _slotTime,
         notes:        _notesCtrl.text.trim(),
         contactName:  _nameCtrl.text.trim(),
         contactPhone: phone,
@@ -338,48 +427,88 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
     );
   }
 
-  String _stepTitle() => ['Select Date & Time', 'Enter Address', 'Confirm Booking'][_step];
+  String _stepTitle() => ['When do you need it?', 'Enter Address', 'Confirm Booking'][_step];
 
   Widget _buildDateTimeStep() {
+    final w = _window;
+    final hours = _hours;
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      const Text('Select Date', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.ink)),
+      const Text('When?', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.ink)),
       const SizedBox(height: 12),
-      Container(decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 8)]),
-        child: CalendarDatePicker(
-          initialDate: _selectedDate,
-          firstDate: DateTime.now(),
-          lastDate: DateTime.now().add(const Duration(days: 60)),
-          onDateChanged: (d) {
-            HapticFeedback.selectionClick();
-            setState(() { _selectedDate = d; _fixSelectedSlot(); });
-          })),
-      const SizedBox(height: 20),
-      const Text('Select Time Slot', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.ink)),
-      const SizedBox(height: 12),
-      Wrap(spacing: 10, runSpacing: 10,
-        children: _timeSlots.map((slot) {
-          final available = _slotAvailable(slot);
-          final sel = available && slot == _selectedSlot;
-          return GestureDetector(
-            onTap: available
-                ? () { HapticFeedback.selectionClick(); setState(() => _selectedSlot = slot); }
-                : null,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              decoration: BoxDecoration(
-                color: sel ? AppColors.teal : (available ? Colors.white : AppColors.line.withOpacity(0.5)),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: sel ? AppColors.teal : AppColors.line)),
-              child: Text(slot, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600,
-                color: sel ? Colors.white : (available ? AppColors.ink2 : AppColors.muted),
-                decoration: available ? null : TextDecoration.lineThrough))));
+      GridView.count(
+        crossAxisCount: 2,
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        mainAxisSpacing: 10,
+        crossAxisSpacing: 10,
+        childAspectRatio: 2.4,
+        children: _windows.map((tw) {
+          final open = _windowOpen(tw, _selDay);
+          final sel = tw.key == _selWindow;
+          return Opacity(
+            opacity: open ? 1 : 0.45,
+            child: GestureDetector(
+              onTap: open ? () => _pickWindow(tw.key) : null,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                decoration: BoxDecoration(
+                  color: sel ? AppColors.teal : Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: sel ? AppColors.teal : AppColors.line)),
+                child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                  Text(tw.label, textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800,
+                      color: sel ? Colors.white : AppColors.ink)),
+                  const SizedBox(height: 2),
+                  Text(tw.sub, textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600,
+                      color: sel ? Colors.white70 : AppColors.muted)),
+                ]))));
         }).toList()),
-      if (!_timeSlots.any(_slotAvailable)) ...[
+      if (!w.isAsap) ...[
+        const SizedBox(height: 20),
+        const Text('Which day?', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.ink)),
         const SizedBox(height: 10),
-        const Text('No slots left for today — please pick another date.',
-          style: TextStyle(fontSize: 12, color: AppColors.red, fontWeight: FontWeight.w600)),
+        Wrap(spacing: 8, runSpacing: 8, children: List.generate(3, (i) {
+          final sel = i == _selDay;
+          return ChoiceChip(
+            label: Text(_dayName(i)),
+            selected: sel,
+            showCheckmark: false,
+            selectedColor: AppColors.teal,
+            backgroundColor: Colors.white,
+            side: BorderSide(color: sel ? AppColors.teal : AppColors.line),
+            labelStyle: TextStyle(fontWeight: FontWeight.w700,
+              color: sel ? Colors.white : AppColors.ink2),
+            onSelected: (_) => _pickDay(i));
+        })),
+        const SizedBox(height: 16),
+        _label('PREFERRED HOUR (OPTIONAL)'),
+        const SizedBox(height: 6),
+        DropdownButtonFormField<String>(
+          key: ValueKey('hour-$_selWindow-$_selDay'),
+          value: hours.contains(_selHour) ? _selHour : '',
+          isExpanded: true,
+          decoration: InputDecoration(
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12))),
+          items: [
+            const DropdownMenuItem(value: '', child: Text('Any time in this window')),
+            ...hours.map((h) => DropdownMenuItem(value: h, child: Text(h))),
+          ],
+          onChanged: (v) => setState(() => _selHour = v ?? '')),
       ],
+      const SizedBox(height: 16),
+      Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: AppColors.tealSoft,
+          borderRadius: BorderRadius.circular(12)),
+        child: Text(
+          w.isAsap
+              ? '⚡ We will send the nearest available provider right away.'
+              : '🗓️ ${_dayName(_selDay)}, ${w.sub} — the provider confirms the exact time.',
+          style: const TextStyle(fontSize: 12.5, color: AppColors.teal, fontWeight: FontWeight.w600))),
     ]);
   }
 
@@ -400,7 +529,11 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
               color: _customerLat != null ? AppColors.green : AppColors.yellow, size: 20),
           const SizedBox(width: 10),
           Expanded(child: Text(
-            _customerLat != null ? 'GPS location loaded ✓' : 'Location not detected — enter your address below',
+            _pinnedOnMap
+                ? 'Location pinned on map ✓'
+                : _customerLat != null
+                    ? 'GPS location loaded ✓'
+                    : 'Location not detected — pin it on the map or enter your address',
             style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600,
               color: _customerLat != null ? AppColors.green : AppColors.yellow))),
           if (_customerLat != null)
@@ -414,6 +547,18 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
                   Text('View', style: TextStyle(fontSize: 12, color: AppColors.green, fontWeight: FontWeight.w700)),
                 ]))),
         ])),
+
+      const SizedBox(height: 10),
+      SizedBox(
+        width: double.infinity,
+        child: OutlinedButton(
+          onPressed: _pinOnMap,
+          style: OutlinedButton.styleFrom(
+            minimumSize: const Size(double.infinity, 46),
+            side: const BorderSide(color: AppColors.teal),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+          child: const Text('🗺️ Pin exact location on map',
+            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.teal)))),
 
       const SizedBox(height: 14),
       _label('FULL ADDRESS *'),
@@ -503,7 +648,7 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
           ])),
         ])),
       const SizedBox(height: 12),
-      _infoCard(Icons.calendar_today_rounded, 'Date & Time', '${_selectedDate.day}/${_selectedDate.month}/${_selectedDate.year} at $_selectedSlot'),
+      _infoCard(Icons.calendar_today_rounded, 'When', _whenSummary),
       const SizedBox(height: 8),
       _infoCard(Icons.location_on_rounded, 'Address', _addressCtrl.text.trim()),
       const SizedBox(height: 8),

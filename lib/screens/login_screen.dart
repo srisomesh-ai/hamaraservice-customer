@@ -25,6 +25,7 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _showPwd      = false;
   String _gender     = 'male';
   String _error      = '';
+  bool _offerRegister = false; // show "Create an account" under the error
 
   void _goHome() {
     if (!mounted) return;
@@ -49,7 +50,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   // ── Google Sign In ────────────────────────────────────────────────────────
   Future<void> _signInGoogle() async {
-    setState(() { _loading = true; _error = ''; });
+    setState(() { _loading = true; _error = ''; _offerRegister = false; });
     try {
       final result = await FirebaseService.signInWithGoogle();
       if (result == null) { if (mounted) setState(() => _loading = false); return; }
@@ -71,21 +72,32 @@ class _LoginScreenState extends State<LoginScreen> {
     final email = _emailCtrl.text.trim();
     final pwd   = _pwdCtrl.text;
     if (email.isEmpty || pwd.isEmpty) { setState(() => _error = 'Enter email and password'); return; }
-    setState(() { _loading = true; _error = ''; });
+    setState(() { _loading = true; _error = ''; _offerRegister = false; });
     try {
       await FirebaseAuth.instance.signInWithEmailAndPassword(email: email, password: pwd);
       await _syncProfile(authMethod: 'email');
       _goHome();
     } on FirebaseAuthException catch (e) {
+      // Newer Firebase projects (email enumeration protection) report an
+      // unknown email and a wrong password both as 'invalid-credential'.
+      const noAccount = 'No account found or wrong password. New here? Create an account.';
       final msgs = {
-        'user-not-found':     'No account with this email. Please register.',
-        'wrong-password':     'Incorrect password. Try again.',
+        'user-not-found':     noAccount,
+        'invalid-credential': noAccount,
+        'INVALID_LOGIN_CREDENTIALS': noAccount,
+        'wrong-password':     'Incorrect password. Try again or tap "Forgot password".',
         'invalid-email':      'Invalid email format.',
-        'too-many-requests':  'Too many attempts. Please wait.',
-        'invalid-credential': 'Incorrect email or password.',
+        'user-disabled':      'This account has been disabled. Please contact support.',
+        'too-many-requests':  'Too many attempts. Please try again later.',
         'network-request-failed': 'Network error. Check your internet connection.',
       };
-      if (mounted) setState(() { _loading = false; _error = msgs[e.code] ?? 'Sign in failed. Try again.'; });
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _error = msgs[e.code] ?? 'Sign in failed. Try again.';
+          _offerRegister = _error == noAccount;
+        });
+      }
     } catch (e) {
       if (mounted) setState(() { _loading = false; _error = 'Sign in failed. Try again.'; });
     }
@@ -101,7 +113,7 @@ class _LoginScreenState extends State<LoginScreen> {
     if (!indianMobileRegex.hasMatch(phone)) { setState(() => _error = 'Enter a valid 10-digit Indian mobile number'); return; }
     if (email.isEmpty || pwd.isEmpty) { setState(() => _error = 'Enter email and password'); return; }
     if (pwd.length < 8) { setState(() => _error = 'Password must be at least 8 characters'); return; }
-    setState(() { _loading = true; _error = ''; });
+    setState(() { _loading = true; _error = ''; _offerRegister = false; });
 
     UserCredential cred;
     try {
@@ -389,6 +401,20 @@ class _LoginScreenState extends State<LoginScreen> {
                             Expanded(child: Text(_error, style: const TextStyle(fontSize: 12, color: Color(0xFFE53E3E)))),
                           ]),
                         ),
+                        if (_offerRegister && !_isRegister)
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: TextButton.icon(
+                              onPressed: () => setState(() {
+                                _isRegister = true;
+                                _error = '';
+                                _offerRegister = false;
+                              }),
+                              icon: const Icon(Icons.person_add_alt_1_rounded, size: 16, color: AppColors.teal),
+                              label: const Text('Create an account',
+                                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.teal)),
+                            ),
+                          ),
                       ],
 
                       const SizedBox(height: 20),
@@ -407,7 +433,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       const SizedBox(height: 16),
                       Center(
                         child: TextButton(
-                          onPressed: () => setState(() { _isRegister = !_isRegister; _error = ''; }),
+                          onPressed: () => setState(() { _isRegister = !_isRegister; _error = ''; _offerRegister = false; }),
                           child: Text(
                             _isRegister ? 'Already have an account? Sign In' : "Don't have an account? Register",
                             style: const TextStyle(fontSize: 13, color: AppColors.teal, fontWeight: FontWeight.w600),

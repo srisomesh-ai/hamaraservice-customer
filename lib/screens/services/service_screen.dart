@@ -5,6 +5,7 @@ import '../../services/api_service.dart';
 import '../../utils/booking_format.dart';
 import '../../utils/theme.dart';
 import '../../services/hs_catalog.dart';
+import '../../services/job_questions.dart';
 import '../booking/booking_flow_screen.dart';
 import '../login_screen.dart';
 
@@ -28,6 +29,7 @@ class _ServiceScreenState extends State<ServiceScreen> {
   Map<String, dynamic>? _range; // approved providers' {min, max, provider_count}
   final Set<String> _selectedTasks = {};    // 'task_sweep', 'task_dust' ...
   final Map<String, String> _selectedBhk = {}; // groupKey → optionKey
+  final Map<String, Set<String>> _answers = {}; // job question key → chosen options
   bool _loading = true;
 
   @override
@@ -135,11 +137,35 @@ class _ServiceScreenState extends State<ServiceScreen> {
         if (opt != null) lines.add('${g.title}: ${opt.name}');
       }
     }
-    return lines.isEmpty ? [_svc!.name] : lines;
+    if (lines.isEmpty) lines.add(_svc!.name);
+    // Job details for the provider: "No. of cameras: 5–8"
+    for (final q in JobQuestions.forService(widget.svcId)) {
+      final a = _answers[q.key];
+      if (a != null && a.isNotEmpty) lines.add('${q.label}: ${q.options.where(a.contains).join(', ')}');
+    }
+    return lines;
+  }
+
+  bool get _questionsDone => JobQuestions.forService(widget.svcId)
+      .every((q) => !q.required || (_answers[q.key]?.isNotEmpty ?? false));
+
+  void _answer(JobQuestion q, String opt) {
+    HapticFeedback.selectionClick();
+    setState(() {
+      final set = _answers.putIfAbsent(q.key, () => <String>{});
+      if (q.multi) {
+        set.contains(opt) ? set.remove(opt) : set.add(opt);
+      } else {
+        set
+          ..clear()
+          ..add(opt);
+      }
+    });
   }
 
   bool get _canBook {
     if (_svc == null) return false;
+    if (!_questionsDone) return false;
     if (_isVisitOnly) return true;
     // Tasks are mandatory only when they are the sole choice (e.g. House
     // Maid); otherwise they are optional add-ons to a standalone group.
@@ -221,6 +247,10 @@ class _ServiceScreenState extends State<ServiceScreen> {
                 _buildHowItWorks(),
               ] else
                 _buildTasksBody(),
+              if (JobQuestions.forService(widget.svcId).isNotEmpty) ...[
+                const SizedBox(height: 8),
+                _buildJobQuestions(),
+              ],
             ]))),
         ]),
         // ── BOTTOM BAR (always on top) ───────────────────────
@@ -547,6 +577,50 @@ class _ServiceScreenState extends State<ServiceScreen> {
         ])));
   }
 
+  // ── JOB QUESTIONS — help the provider quote correctly ────────
+  Widget _buildJobQuestions() {
+    final qs = JobQuestions.forService(widget.svcId);
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: AppColors.line, width: 1.5),
+        borderRadius: BorderRadius.circular(16)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('Tell the provider about the job', style: TextStyle(
+          fontFamily: 'Sora', fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.ink)),
+        const SizedBox(height: 2),
+        const Text('Helps the provider quote the right price before visiting.',
+          style: TextStyle(fontSize: 11.5, color: AppColors.muted)),
+        for (final q in qs) ...[
+          const SizedBox(height: 14),
+          Row(children: [
+            Expanded(child: Text(q.q, style: const TextStyle(
+              fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.ink2))),
+            Text(q.multi ? 'Select all that apply' : (q.required ? 'Required' : 'Optional'),
+              style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w700,
+                color: q.required && !(_answers[q.key]?.isNotEmpty ?? false)
+                  ? AppColors.red : AppColors.muted)),
+          ]),
+          const SizedBox(height: 8),
+          Wrap(spacing: 8, runSpacing: 8, children: q.options.map((o) {
+            final on = _answers[q.key]?.contains(o) ?? false;
+            return GestureDetector(
+              onTap: () => _answer(q, o),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 150),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: on ? AppColors.tealSoft : AppColors.bg,
+                  border: Border.all(color: on ? AppColors.teal : AppColors.line, width: on ? 2 : 1.5),
+                  borderRadius: BorderRadius.circular(100)),
+                child: Text(o, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600,
+                  color: on ? AppColors.teal2 : AppColors.ink2))));
+          }).toList()),
+        ],
+      ]));
+  }
+
   // ── TEMPLATE B: VISIT CARD ────────────────────────────────────
   Widget _buildVisitCard() {
     final g = _svc!.groups.first;
@@ -738,6 +812,9 @@ class _ServiceScreenState extends State<ServiceScreen> {
                 borderRadius: BorderRadius.circular(100)),
               child: Text(c, style: const TextStyle(
                 fontSize: 10, fontWeight: FontWeight.w600, color: AppColors.teal)))).toList())
+          else if (!_questionsDone)
+            const Text('Answer the job questions above', style: TextStyle(
+              fontSize: 10, color: AppColors.red))
           else if (!_isVisitOnly)
             const Text('Select tasks above', style: TextStyle(
               fontSize: 10, color: AppColors.muted))

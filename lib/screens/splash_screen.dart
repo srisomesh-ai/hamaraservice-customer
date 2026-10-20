@@ -84,33 +84,20 @@ class _SplashScreenState extends State<SplashScreen>
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Container(
-                    width: 90, height: 90,
+                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                    margin: const EdgeInsets.symmetric(horizontal: 32),
                     decoration: BoxDecoration(
-                      color: AppColors.brand,
-                      borderRadius: BorderRadius.circular(22),
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(20),
                       boxShadow: [
                         BoxShadow(
-                          color: AppColors.brand.withOpacity(0.4),
+                          color: Colors.black.withOpacity(0.18),
                           blurRadius: 24, offset: const Offset(0, 8)),
                       ],
                     ),
-                    child: const Icon(Icons.home_rounded, color: Colors.white, size: 48),
+                    child: Image.asset('assets/images/rlogo.png',
+                        width: 260, fit: BoxFit.contain),
                   ),
-                  const SizedBox(height: 20),
-                  RichText(
-                    text: const TextSpan(children: [
-                      TextSpan(text: 'Hamara',
-                        style: TextStyle(fontFamily: 'Sora', fontSize: 32,
-                          fontWeight: FontWeight.w800, color: Colors.white)),
-                      TextSpan(text: 'Service',
-                        style: TextStyle(fontFamily: 'Sora', fontSize: 32,
-                          fontWeight: FontWeight.w800, color: AppColors.brand)),
-                    ]),
-                  ),
-                  const SizedBox(height: 8),
-                  const Text('Home services at your doorstep',
-                    style: TextStyle(fontFamily: 'Sora', fontSize: 14,
-                      color: Colors.white70, fontWeight: FontWeight.w400)),
                   const SizedBox(height: 48),
                   const SizedBox(width: 28, height: 28,
                     child: CircularProgressIndicator(

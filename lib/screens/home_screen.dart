@@ -416,19 +416,24 @@ class _HomeScreenState extends State<HomeScreen>
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               // HamaraService logo — large and prominent
-              Image.asset(
-                'slogo-png.png',
-                height: 48,
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                    color: Colors.white, borderRadius: BorderRadius.circular(12)),
+                child: Image.asset(
+                'assets/images/rlogo.png',
+                height: 40,
                 fit: BoxFit.contain,
                 errorBuilder: (_, __, ___) => const Text(
                   'HamaraService',
                   style: TextStyle(
-                    color: Colors.white,
+                    color: AppColors.teal,
                     fontSize: 20,
                     fontWeight: FontWeight.w900,
                     letterSpacing: 0.5,
                   ),
                 ),
+              ),
               ),
               // Profile avatar
               GestureDetector(

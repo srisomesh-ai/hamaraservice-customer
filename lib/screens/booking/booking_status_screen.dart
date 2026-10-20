@@ -1051,7 +1051,12 @@ class _BookingStatusScreenState extends State<BookingStatusScreen>
     final name = asStr(b['provider_name']).isEmpty ? 'Your provider' : asStr(b['provider_name']);
     final rating = asDouble(b['provider_rating']) ?? 0;
     final reviews = asInt(b['provider_reviews']);
-    final phone = asStr(b['provider_phone']);
+    // Provider's number only after the customer accepted the price, so the
+    // job can't be taken off the platform during negotiation.
+    final phone = const ['confirmed', 'active', 'completed']
+            .contains(asStr(b['status']))
+        ? asStr(b['provider_phone'])
+        : '';
     final dist = asDouble(b['distance_km']);
     return Container(
       padding: const EdgeInsets.all(14),

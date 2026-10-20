@@ -15,7 +15,8 @@ class MainActivity: FlutterActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val manager = getSystemService(NotificationManager::class.java)
 
-            // High priority channel — screen-on and screen-off notifications
+            // High priority channel for booking updates (same id as in
+            // lib/services/notification_service.dart)
             val channel = NotificationChannel(
                 "hamaraservice_high_priority",
                 "HamaraService Alerts",
@@ -27,7 +28,6 @@ class MainActivity: FlutterActivity() {
                 enableLights(true)
                 setShowBadge(true)
                 lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
-                setBypassDnd(true)  // Show even in Do Not Disturb
             }
             manager.createNotificationChannel(channel)
         }

@@ -1,163 +1,65 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_database/firebase_database.dart';
-import 'package:firebase_messaging/firebase_messaging.dart';
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:geolocator/geolocator.dart';
-import 'package:geocoding/geocoding.dart';
 import 'firebase_options.dart';
 import 'utils/theme.dart';
 import 'screens/splash_screen.dart';
 import 'services/api_service.dart';
-
-// Global notification plugin instance
-final FlutterLocalNotificationsPlugin flnp = FlutterLocalNotificationsPlugin();
-
-// Notification channel details
-const _channel = AndroidNotificationChannel(
-  'hamaraservice_high_priority',
-  'HamaraService Alerts',
-  description: 'Booking and payment notifications',
-  importance: Importance.max,
-  playSound: true,
-  enableVibration: true,
-);
-
-const _notifDetails = NotificationDetails(
-  android: AndroidNotificationDetails(
-    'hamaraservice_high_priority',
-    'HamaraService Alerts',
-    channelDescription: 'Booking and payment notifications',
-    importance: Importance.max,
-    priority: Priority.high,
-    playSound: true,
-    enableVibration: true,
-    visibility: NotificationVisibility.public,
-  ),
-);
-
-// Background handler — fires even when app is killed
-@pragma('vm:entry-point')
-Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-
-  // Get title/body from data payload (since we send data-only messages)
-  final title = message.data['title'] ?? 'HamaraService';
-  final body  = message.data['body']  ?? 'You have a new update.';
-
-  if (title.isEmpty && body.isEmpty) return;
-
-  final plugin = FlutterLocalNotificationsPlugin();
-  await plugin.initialize(
-    const InitializationSettings(
-      android: AndroidInitializationSettings('@mipmap/ic_launcher'),
-    ),
-  );
-  await plugin.show(message.hashCode, title, body, _notifDetails,
-    payload: message.data['bookingId'] ?? '');
-}
+import 'services/notification_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  _installErrorScreen();
 
+  // Only Firebase core is awaited before the first frame (with a time limit),
+  // so a slow device/network can never leave the app stuck on its launch
+  // screen. Notifications + permission prompts start after the UI is visible.
   try {
-    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-
-    // Create notification channel on Android
-    await flnp.resolvePlatformSpecificImplementation<
-        AndroidFlutterLocalNotificationsPlugin>()
-        ?.createNotificationChannel(_channel);
-
-    // Init local notifications
-    await flnp.initialize(
-      const InitializationSettings(
-        android: AndroidInitializationSettings('@mipmap/ic_launcher'),
-      ),
-    );
-
-    // Register background handler BEFORE anything else
-    FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
-
-    // Request notification permission
-    await FirebaseMessaging.instance.requestPermission(
-      alert: true, badge: true, sound: true,
-      criticalAlert: false, provisional: false,
-    );
-
-    // Foreground notifications — read from data since we send data-only
-    FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
-      final title = message.data['title'] ?? message.notification?.title ?? 'HamaraService';
-      final body  = message.data['body']  ?? message.notification?.body  ?? '';
-      if (title.isEmpty) return;
-      try {
-        await flnp.show(message.hashCode, title, body, _notifDetails,
-          payload: message.data['bookingId'] ?? '');
-      } catch (_) {}
+    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform)
+        .timeout(const Duration(seconds: 10));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(NotificationService.init().catchError((Object e) {
+        debugPrint('Notification init failed: $e');
+      }));
     });
 
-    // Save FCM token to Firebase
-    Future<void> saveFcmToken(String uid) async {
-      try {
-        final token = await FirebaseMessaging.instance.getToken();
-        if (token != null && token.isNotEmpty) {
-          await ApiService.saveFcmToken(token);
-        }
-      } catch (_) {}
-    }
-
-    final currentUser = FirebaseAuth.instance.currentUser;
-    if (currentUser != null) {
-      saveFcmToken(currentUser.uid);
-      _requestAndSaveLocation(currentUser.uid);
-    }
-
+    // Signed in from a previous session: make sure the customer profile
+    // exists on the server and the FCM token is current.
     FirebaseAuth.instance.authStateChanges().listen((user) async {
-      if (user != null) {
-        saveFcmToken(user.uid);
-        _requestAndSaveLocation(user.uid);
+      if (user == null) return;
+      try {
+        await ApiService.ensureCustomerProfile();
+      } catch (_) {
+        // retried before booking / on next login
       }
     });
-
-    FirebaseMessaging.instance.onTokenRefresh.listen((token) async {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user != null) {
-        await ApiService.saveFcmToken(token);
-      }
-    });
-
-  } catch (_) {}
+  } catch (e) {
+    debugPrint('Startup init failed: $e');
+  }
 
   SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
-  runApp(const CustomerApp());
+  SystemChrome.setSystemUIOverlayStyle(AppTheme.overlay);
+  runZonedGuarded(() => runApp(const CustomerApp()),
+      (e, s) => debugPrint('Uncaught: $e\n$s'));
 }
 
-Future<void> _requestAndSaveLocation(String uid) async {
-  try {
-    LocationPermission permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-    }
-    if (permission == LocationPermission.denied ||
-        permission == LocationPermission.deniedForever) return;
-    final pos = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high);
-    String city = '';
-    try {
-      final placemarks = await placemarkFromCoordinates(pos.latitude, pos.longitude);
-      if (placemarks.isNotEmpty) {
-        city = placemarks.first.locality ??
-            placemarks.first.subAdministrativeArea ?? '';
-      }
-    } catch (_) {}
-    await ApiService.updateCustomer({
-      'lat': pos.latitude,
-      'lng': pos.longitude,
-      if (city.isNotEmpty) 'city': city,
-    });
-  } catch (_) {}
+/// In release builds Flutter shows a blank grey box when a screen fails to
+/// build. Show the actual error instead so a screenshot tells us the cause.
+void _installErrorScreen() {
+  if (kDebugMode) return;
+  ErrorWidget.builder = (FlutterErrorDetails d) => Material(
+        color: Colors.white,
+        child: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(20),
+            child: Text('Something went wrong.\n\n${d.exceptionAsString()}',
+                style: const TextStyle(color: Colors.black87, fontSize: 13)),
+          ),
+        ),
+      );
 }
 
 class CustomerApp extends StatelessWidget {
@@ -168,6 +70,7 @@ class CustomerApp extends StatelessWidget {
       title: 'HamaraService',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.theme,
+      navigatorKey: navigatorKey,
       home: const SplashScreen(),
     );
   }

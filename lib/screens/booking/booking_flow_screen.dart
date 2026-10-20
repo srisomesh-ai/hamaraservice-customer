@@ -2,100 +2,230 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:flutter/services.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_messaging/firebase_messaging.dart';
-import 'package:firebase_database/firebase_database.dart';
-import '../../services/api_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../../services/api_service.dart';
+import '../../services/session.dart';
+import '../../utils/booking_format.dart';
 import '../../utils/theme.dart';
-import '../../services/firebase_service.dart';
-import 'radar_screen.dart';
+import '../../widgets/common.dart';
+import '../map_picker_screen.dart';
+import 'booking_status_screen.dart';
 
+/// A "When?" option: Now / ASAP, or a preferred window on a chosen day.
+/// Same options and slot_time format as the website (app/customer.html).
+class _TimeWindow {
+  final String key; // 'Now / ASAP' | 'Morning' | 'Afternoon' | 'Evening'
+  final IconData icon;
+  final String sub; // '8 AM – 12 PM'
+  final int from; // window start hour (0 for ASAP)
+  final int to; // window end hour (0 for ASAP)
+  const _TimeWindow(this.key, this.icon, this.sub, [this.from = 0, this.to = 0]);
+  bool get isAsap => to == 0;
+}
+
+/// Booking: When? → Address → Review & find provider. Sends exactly the
+/// fields the web app sends to bookings.php?action=create.
 class BookingFlowScreen extends StatefulWidget {
   final Map<String, dynamic> service;
   final int basePrice;
   final List<String> summary;
+
+  /// Test-only: pre-filled profile; when set nothing is loaded.
+  final Map<String, dynamic>? preview;
+  final int initialStep;
   const BookingFlowScreen({
     super.key,
     required this.service,
     required this.basePrice,
     this.summary = const [],
+    this.preview,
+    this.initialStep = 0,
   });
   @override
   State<BookingFlowScreen> createState() => _BookingFlowScreenState();
 }
 
 class _BookingFlowScreenState extends State<BookingFlowScreen> {
-  int _step = 0;
-  DateTime _selectedDate = DateTime.now().add(const Duration(days: 1));
+  late int _step = widget.initialStep;
   final _addressCtrl = TextEditingController();
+  final _flatCtrl = TextEditingController();
   final _landmarkCtrl = TextEditingController();
   final _nameCtrl = TextEditingController();
   final _phoneCtrl = TextEditingController();
+  final _notesCtrl = TextEditingController();
   bool _loading = false;
-  bool _detectingLocation = false; // Always false - no re-fetch
+  bool _locating = false;
   double? _customerLat;
   double? _customerLng;
+  bool _pinnedOnMap = false;
+  String _city = '';
 
-  final List<String> _timeSlots = [
-    '07:00 AM','08:00 AM','09:00 AM','10:00 AM',
-    '11:00 AM','12:00 PM','01:00 PM','02:00 PM',
-    '03:00 PM','04:00 PM','05:00 PM','06:00 PM',
+  // ── When? ──
+  static const _asap = 'Now / ASAP';
+  static const List<_TimeWindow> _windows = [
+    _TimeWindow(_asap, Icons.bolt_rounded, 'Nearest free provider'),
+    _TimeWindow('Morning', Icons.wb_twilight_rounded, '8 AM – 12 PM', 8, 12),
+    _TimeWindow('Afternoon', Icons.wb_sunny_outlined, '12 – 4 PM', 12, 16),
+    _TimeWindow('Evening', Icons.nights_stay_outlined, '4 – 8 PM', 16, 20),
   ];
-  String _selectedSlot = '09:00 AM';
+  String _selWindow = _asap;
+  int _selDay = 0; // 0 = today, 1 = tomorrow, 2 = day after
+  String _selHour = ''; // optional, e.g. '9 AM'
+
+  _TimeWindow get _window =>
+      _windows.firstWhere((w) => w.key == _selWindow, orElse: () => _windows.first);
+
+  DateTime _day(int offset) {
+    final n = clock();
+    return DateTime(n.year, n.month, n.day + offset);
+  }
+
+  static String _hourLabel(int h) => '${h % 12 == 0 ? 12 : h % 12} ${h < 12 ? 'AM' : 'PM'}';
+
+  /// Today a window needs at least 1 h left; later days are always open.
+  bool _windowOpen(_TimeWindow w, int day) =>
+      w.isAsap || day > 0 || clock().hour < w.to - 1;
+
+  /// Hours offered for the chosen window/day (past hours of today hidden).
+  List<String> get _hours {
+    final w = _window;
+    if (w.isAsap) return const [];
+    final now = clock().hour;
+    return [
+      for (var h = w.from; h < w.to; h++)
+        if (!(_selDay == 0 && h <= now)) _hourLabel(h),
+    ];
+  }
+
+  void _pickWindow(String key) {
+    HapticFeedback.selectionClick();
+    setState(() {
+      _selWindow = key;
+      _selHour = '';
+      final w = _window;
+      if (!w.isAsap && _selDay == 0 && !_windowOpen(w, 0)) _selDay = 1;
+    });
+  }
+
+  void _pickDay(int i) {
+    HapticFeedback.selectionClick();
+    setState(() {
+      _selDay = i;
+      if (!_windowOpen(_window, i)) _selWindow = _asap;
+      if (!_hours.contains(_selHour)) _selHour = '';
+    });
+  }
+
+  String _dayName(int i) {
+    if (i == 0) return 'Today';
+    if (i == 1) return 'Tomorrow';
+    const wd = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    const mo = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    final d = _day(i);
+    return '${wd[d.weekday - 1]}, ${d.day} ${mo[d.month - 1]}';
+  }
+
+  /// slot_date: the chosen day (today for ASAP), YYYY-MM-DD.
+  String get _slotDate {
+    final d = _day(_window.isAsap ? 0 : _selDay);
+    return '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+  }
+
+  /// slot_time, exactly like the web: 'Now / ASAP' or
+  /// 'Morning (8 AM – 12 PM) · 9 AM' (the hour part is optional).
+  String get _slotTime {
+    final w = _window;
+    if (w.isAsap) return _asap;
+    return '${w.key} (${w.sub})${_selHour.isNotEmpty ? ' · $_selHour' : ''}';
+  }
+
+  String get _whenSummary {
+    final w = _window;
+    if (w.isAsap) return 'Now / ASAP — nearest available provider';
+    return '${_dayName(_selDay)}, ${w.key} (${w.sub})${_selHour.isNotEmpty ? ' · around $_selHour' : ''}';
+  }
+
+  /// Address sent to the server, like the web: "Flat / door, location".
+  String get _fullAddress {
+    final flat = _flatCtrl.text.trim();
+    final loc = _addressCtrl.text.trim();
+    if (flat.isEmpty) return loc;
+    if (loc.isEmpty) return flat;
+    return '$flat, $loc';
+  }
 
   @override
   void initState() {
     super.initState();
-    _loadNamePhone();
-    _loadSavedLocation(); // Use saved location, no GPS re-fetch
+    final p = widget.preview;
+    if (p != null) {
+      _addressCtrl.text = asStr(p['address']);
+      _flatCtrl.text = asStr(p['flat']);
+      _landmarkCtrl.text = asStr(p['landmark']);
+      _nameCtrl.text = asStr(p['name']);
+      _phoneCtrl.text = asStr(p['phone']);
+      _city = asStr(p['city']);
+      _customerLat = asDouble(p['lat']);
+      _customerLng = asDouble(p['lng']);
+      _pinnedOnMap = p['pinned'] == true;
+      if (asStr(p['window']).isNotEmpty) _selWindow = asStr(p['window']);
+      _selDay = asInt(p['day']);
+      return;
+    }
+    _loadProfile();
   }
 
   @override
   void dispose() {
     _addressCtrl.dispose();
+    _flatCtrl.dispose();
     _landmarkCtrl.dispose();
     _nameCtrl.dispose();
     _phoneCtrl.dispose();
+    _notesCtrl.dispose();
     super.dispose();
   }
 
-  Future<void> _loadSavedLocation() async {
-    final uid = FirebaseAuth.instance.currentUser?.uid;
-    // 1. Try saved profile first
-    if (uid != null) {
-      try {
-        final profile = await ApiService.getCustomer(uid);
-        if (profile != null) {
-          final lat = (profile['lat'] as num?)?.toDouble();
-          final lng = (profile['lng'] as num?)?.toDouble();
-          final savedAddress = profile['address']?.toString() ?? '';
-          final city = profile['city']?.toString() ?? '';
-          if (mounted) {
-            setState(() {
-              if (lat != null && lng != null && lat != 0 && lng != 0) {
-                _customerLat = lat;
-                _customerLng = lng;
-              }
-              if (_addressCtrl.text.isEmpty) {
-                if (savedAddress.isNotEmpty) {
-                  _addressCtrl.text = savedAddress;
-                } else if (city.isNotEmpty) {
-                  _addressCtrl.text = city;
-                }
-              }
-            });
+  Future<void> _loadProfile() async {
+    final user = Session.user;
+    _nameCtrl.text = user?.displayName ?? '';
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _city = prefs.getString('user_city') ?? '';
+    } catch (_) {}
+    try {
+      final profile = await ApiService.getCustomer();
+      if (profile != null && mounted) {
+        final lat = asDouble(profile['lat']);
+        final lng = asDouble(profile['lng']);
+        final savedAddress = asStr(profile['address']);
+        final city = asStr(profile['city']);
+        setState(() {
+          if (lat != null && lng != null && lat != 0 && lng != 0) {
+            _customerLat = lat;
+            _customerLng = lng;
           }
-        }
-      } catch (e) {}
+          if (city.isNotEmpty) _city = city;
+          if (_addressCtrl.text.isEmpty) {
+            _addressCtrl.text = savedAddress.isNotEmpty ? savedAddress : city;
+          }
+          if (_nameCtrl.text.isEmpty) _nameCtrl.text = asStr(profile['name']);
+          if (_phoneCtrl.text.isEmpty) _phoneCtrl.text = asStr(profile['phone']);
+        });
+      }
+    } on ApiException catch (e) {
+      debugPrint('Profile load failed: ${e.message}');
     }
-    // 2. If still no location — capture GPS right now
-    if (_customerLat == null) {
-      await _captureGPS();
+    if (_phoneCtrl.text.isEmpty) {
+      _phoneCtrl.text = normalizeIndianMobile(user?.phoneNumber ?? '');
     }
+    // Web: always fetch a fresh precise location on the address step.
+    await _captureGPS();
   }
 
   Future<void> _captureGPS() async {
+    if (mounted) setState(() => _locating = true);
     try {
       var permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
@@ -105,378 +235,580 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
           permission == LocationPermission.deniedForever) return;
 
       final pos = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.high,
-          timeLimit: const Duration(seconds: 10));
+          desiredAccuracy: LocationAccuracy.high, timeLimit: const Duration(seconds: 12));
 
       String addr = '';
+      String city = '';
       try {
-        final placemarks = await placemarkFromCoordinates(
-            pos.latitude, pos.longitude);
+        final placemarks = await placemarkFromCoordinates(pos.latitude, pos.longitude);
         if (placemarks.isNotEmpty) {
           final p = placemarks.first;
-          addr = [p.street, p.subLocality, p.locality]
+          addr = [p.street, p.subLocality, p.locality, p.postalCode]
               .whereType<String>()
               .where((s) => s.isNotEmpty)
+              .toSet()
               .join(', ');
+          city = p.locality ?? p.subAdministrativeArea ?? '';
         }
       } catch (_) {}
 
+      if (_pinnedOnMap) return; // a map pin is more exact than GPS
       if (mounted) {
         setState(() {
           _customerLat = pos.latitude;
           _customerLng = pos.longitude;
-          if (_addressCtrl.text.isEmpty && addr.isNotEmpty) {
-            _addressCtrl.text = addr;
-          }
+          if (city.isNotEmpty) _city = city;
+          if (addr.isNotEmpty) _addressCtrl.text = addr;
         });
       }
-      // Save to profile for next time
-      final uid = FirebaseAuth.instance.currentUser?.uid;
-      if (uid != null) {
-        try {
-          await ApiService.updateCustomer({
-            'lat': pos.latitude, 'lng': pos.longitude,
-          });
-        } catch (_) {}
+      try {
+        await ApiService.updateCustomer({
+          'lat': pos.latitude,
+          'lng': pos.longitude,
+          if (city.isNotEmpty) 'city': city,
+        });
+      } on ApiException catch (e) {
+        debugPrint('Saving location failed: ${e.message}');
       }
     } catch (e) {
       debugPrint('GPS capture failed: $e');
+    } finally {
+      if (mounted) setState(() => _locating = false);
     }
   }
 
-  Future<void> _loadNamePhone() async {
-    final user = FirebaseAuth.instance.currentUser;
-    _nameCtrl.text = user?.displayName ?? '';
+  /// Customer pins the service location on a map (more exact than GPS).
+  Future<void> _pinOnMap() async {
+    HapticFeedback.selectionClick();
+    final r = await MapPickerScreen.open(context, lat: _customerLat, lng: _customerLng);
+    if (r == null || !mounted) return;
+    setState(() {
+      _customerLat = r.lat;
+      _customerLng = r.lng;
+      _pinnedOnMap = true;
+      if (r.address.isNotEmpty) _addressCtrl.text = r.address;
+      if (r.city.isNotEmpty) _city = r.city;
+    });
     try {
-      final profile = await ApiService.getCustomer(user?.uid ?? '');
-      if (profile != null) {
-        if (_nameCtrl.text.isEmpty) _nameCtrl.text = profile['name'] ?? '';
-        _phoneCtrl.text = profile['phone'] ?? user?.phoneNumber ?? '';
-      }
-    } catch (e) {}
+      await ApiService.updateCustomer({
+        'lat': r.lat,
+        'lng': r.lng,
+        if (r.city.isNotEmpty) 'city': r.city,
+      });
+    } on ApiException catch (e) {
+      debugPrint('Saving pinned location failed: ${e.message}');
+    }
   }
 
   void _openMapView() {
     if (_customerLat == null || _customerLng == null) return;
-    // Open Google Maps at detected location so user can verify
     launchUrl(Uri.parse(
         'https://www.google.com/maps/search/?api=1&query=$_customerLat,$_customerLng'));
   }
 
+  bool _validateStep(int step) {
+    if (step == 0) {
+      if (!_windowOpen(_window, _selDay)) {
+        _showError('This time window is over for today — pick another day or time');
+        return false;
+      }
+    } else if (step == 1) {
+      // Same checks and messages as the web (createBooking).
+      if (_addressCtrl.text.trim().isEmpty) {
+        _showError('Location not detected — pin it on the map or type your address');
+        return false;
+      }
+      if (_flatCtrl.text.trim().isEmpty) {
+        _showError('Enter your flat / door number');
+        return false;
+      }
+      if (_nameCtrl.text.trim().isEmpty) {
+        _showError('Enter your name');
+        return false;
+      }
+      if (!isValidIndianMobile(_phoneCtrl.text)) {
+        _showError('Enter valid mobile');
+        return false;
+      }
+    }
+    return true;
+  }
+
   Future<void> _confirmBooking() async {
     HapticFeedback.mediumImpact();
-    if (_addressCtrl.text.trim().isEmpty) {
-      _showError('Please enter your address'); return;
-    }
-    if (_landmarkCtrl.text.trim().isEmpty) {
-      _showError('Landmark is required — helps provider find you'); return;
-    }
-    if (_nameCtrl.text.trim().isEmpty || _phoneCtrl.text.trim().isEmpty) {
-      _showError('Please enter your name and mobile number'); return;
-    }
-    if (_phoneCtrl.text.trim().length < 10) {
-      _showError('Please enter a valid 10-digit mobile number'); return;
-    }
+    if (!_validateStep(0)) { setState(() => _step = 0); return; }
+    if (!_validateStep(1)) { setState(() => _step = 1); return; }
+    final phone = normalizeIndianMobile(_phoneCtrl.text);
+    final address = _fullAddress;
 
     setState(() => _loading = true);
     try {
-      final user = FirebaseAuth.instance.currentUser;
-      // Get customer FCM token to include in booking
-      String customerFcmToken = '';
-      try {
-        final token = await FirebaseMessaging.instance.getToken();
-        customerFcmToken = token ?? '';
-      } catch (_) {}
+      // The server requires a customer profile before booking (412).
+      await ApiService.ensureCustomerProfile(name: _nameCtrl.text.trim(), phone: phone);
+      // Web: also save phone / address / city as the profile defaults.
+      ApiService.updateCustomer({
+        'phone': phone,
+        'address': address,
+        if (_city.isNotEmpty) 'city': _city,
+      }).catchError((_) => <String, dynamic>{});
 
-      final bookingId = await FirebaseService.createBooking({
-        'customerFcmToken': customerFcmToken,
-        'service': widget.service['name'],
-        'svcId': widget.service['id'],
-        'icon': widget.service['icon'],
-        'price': widget.basePrice,
-        'priceVal': widget.basePrice,
-        'date': '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2,'0')}-${_selectedDate.day.toString().padLeft(2,'0')}',
-        'time': _selectedSlot,
-        'address': _addressCtrl.text.trim(),
-        'landmark': _landmarkCtrl.text.trim(),
-        'customer': _nameCtrl.text.trim(),
-        'phone': _phoneCtrl.text.trim(),
-        'customerId': user?.uid ?? '',
-        'customerEmail': user?.email ?? '',
-        'status': 'searching',
-        'lat': _customerLat ?? 0.0,
-        'lng': _customerLng ?? 0.0,
-        'summary': widget.summary.isNotEmpty ? widget.summary : ['${widget.service['name']} > Service booking'],
-      });
-      if (mounted) {
-        Navigator.pushReplacement(context, MaterialPageRoute(
-          builder: (_) => RadarScreen(
-            bookingId: bookingId, service: widget.service,
-            date: _selectedDate, timeSlot: _selectedSlot,
-            address: _addressCtrl.text.trim(), price: widget.basePrice,
-            lat: _customerLat, lng: _customerLng)));
-      }
-    } catch (e) {
+      final summary = widget.summary.isNotEmpty
+          ? widget.summary
+          : ['${widget.service['name']} > Service booking'];
+      final note = _notesCtrl.text.trim();
+      final bookingId = await ApiService.createBooking(
+        svcId: asStr(widget.service['id']),
+        svcName: asStr(widget.service['name']),
+        svcIcon: asStr(widget.service['icon']),
+        address: address,
+        landmark: _landmarkCtrl.text.trim(),
+        city: _city,
+        lat: _customerLat ?? 0,
+        lng: _customerLng ?? 0,
+        slotDate: _slotDate,
+        slotTime: _slotTime,
+        // Web sends the selected tasks + job answers as notes.
+        notes: [...summary, if (note.isNotEmpty) 'Note: $note'].join(', '),
+        contactName: _nameCtrl.text.trim(),
+        contactPhone: phone,
+        estPrice: widget.basePrice,
+        summary: summary,
+      );
+      if (!mounted) return;
+      Navigator.pushReplacement(
+          context, MaterialPageRoute(builder: (_) => BookingStatusScreen(bookingId: bookingId)));
+    } on ApiException catch (e) {
+      if (!mounted) return;
       setState(() => _loading = false);
-      _showError('Booking failed. Please try again.');
+      if (e.statusCode == 409) {
+        _showActiveBookingDialog(e.message);
+      } else {
+        _showError(e.message.isNotEmpty ? e.message : 'Booking failed');
+      }
+    }
+  }
+
+  Future<void> _showActiveBookingDialog(String message) async {
+    final view = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        icon: const Icon(Icons.event_busy_rounded),
+        title: const Text('You already have a booking'),
+        content: Text('$message\n\nFinish or cancel it before booking another service.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Close')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('View booking')),
+        ],
+      ),
+    );
+    if (view != true || !mounted) return;
+    try {
+      final active = await ApiService.getActiveBooking();
+      final id = asStr(active?['id']);
+      if (id.isEmpty || !mounted) return;
+      Navigator.pushReplacement(
+          context, MaterialPageRoute(builder: (_) => BookingStatusScreen(bookingId: id)));
+    } on ApiException catch (e) {
+      _showError(e.message);
     }
   }
 
   void _showError(String msg) {
+    if (!mounted) return;
     HapticFeedback.heavyImpact();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg), backgroundColor: AppColors.red));
+    showSnack(context, msg, error: true);
   }
+
+  void _next() {
+    HapticFeedback.selectionClick();
+    if (_step < 2) {
+      if (_validateStep(_step)) setState(() => _step++);
+    } else {
+      _confirmBooking();
+    }
+  }
+
+  // ── UI ─────────────────────────────────────────────────────
+  static const _titles = ['When do you need it?', 'Service address', 'Review booking'];
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.bg,
-      appBar: AppBar(title: Text(_stepTitle()), backgroundColor: AppColors.teal),
-      body: Column(children: [
-        // Step progress bar
-        Container(color: AppColors.teal, padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
-          child: Row(children: List.generate(3, (i) => Expanded(child: Row(children: [
-            Expanded(child: Container(height: 4,
-              decoration: BoxDecoration(
-                color: i <= _step ? AppColors.brand : Colors.white30,
-                borderRadius: BorderRadius.circular(2)))),
-            if (i < 2) const SizedBox(width: 4),
-          ])))),
+    return PopScope(
+      canPop: _step == 0,
+      onPopInvoked: (did) {
+        if (!did) setState(() => _step--);
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(_titles[_step]),
+          bottom: PreferredSize(
+            preferredSize: const Size.fromHeight(56),
+            child: _StepIndicator(step: _step, labels: const ['When', 'Address', 'Confirm']),
+          ),
         ),
-        Expanded(child: SingleChildScrollView(
-          padding: const EdgeInsets.all(20),
-          child: _step == 0 ? _buildDateTimeStep() : _step == 1 ? _buildAddressStep() : _buildConfirmStep(),
-        )),
-        // Bottom buttons
-        Container(padding: const EdgeInsets.fromLTRB(20, 12, 20, 24), color: Colors.white,
-          child: Row(children: [
-            if (_step > 0) ...[
-              OutlinedButton(
-                onPressed: () { HapticFeedback.lightImpact(); setState(() => _step--); },
-                style: OutlinedButton.styleFrom(minimumSize: const Size(80, 52),
-                  side: const BorderSide(color: AppColors.teal),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
-                child: const Text('Back', style: TextStyle(color: AppColors.teal, fontWeight: FontWeight.w700))),
-              const SizedBox(width: 12),
-            ],
-            Expanded(child: ElevatedButton(
-              onPressed: _loading ? null : () {
-                HapticFeedback.mediumImpact();
-                if (_step < 2) setState(() => _step++); else _confirmBooking();
-              },
-              style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 52),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))),
-              child: _loading
-                  ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.5, valueColor: AlwaysStoppedAnimation(Colors.white)))
-                  : Text(_step < 2 ? 'Next' : 'Confirm Booking',
-                      style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)))),
-          ])),
-      ]),
+        body: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            _serviceHeader(context),
+            const SizedBox(height: 16),
+            if (_step == 0) ..._whenStep(context),
+            if (_step == 1) ..._addressStep(context),
+            if (_step == 2) ..._confirmStep(context),
+          ],
+        ),
+        bottomNavigationBar: Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            border: Border(top: BorderSide(color: AppColors.line)),
+          ),
+          child: SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+              child: Row(children: [
+                if (_step > 0) ...[
+                  OutlinedButton(
+                    onPressed: _loading ? null : () => setState(() => _step--),
+                    child: const Text('Back'),
+                  ),
+                  const SizedBox(width: 12),
+                ],
+                Expanded(
+                  child: FilledButton(
+                    onPressed: _loading ? null : _next,
+                    child: _loading
+                        ? const SizedBox(
+                            width: 22, height: 22,
+                            child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white))
+                        : Text(_step < 2 ? 'Continue' : 'Find Provider'),
+                  ),
+                ),
+              ]),
+            ),
+          ),
+        ),
+      ),
     );
   }
 
-  String _stepTitle() => ['Select Date & Time', 'Enter Address', 'Confirm Booking'][_step];
-
-  Widget _buildDateTimeStep() {
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      const Text('Select Date', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.ink)),
-      const SizedBox(height: 12),
-      Container(decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 8)]),
-        child: CalendarDatePicker(
-          initialDate: _selectedDate,
-          firstDate: DateTime.now(),
-          lastDate: DateTime.now().add(const Duration(days: 60)),
-          onDateChanged: (d) { HapticFeedback.selectionClick(); setState(() => _selectedDate = d); })),
-      const SizedBox(height: 20),
-      const Text('Select Time Slot', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.ink)),
-      const SizedBox(height: 12),
-      Wrap(spacing: 10, runSpacing: 10,
-        children: _timeSlots.map((slot) {
-          final sel = slot == _selectedSlot;
-          return GestureDetector(
-            onTap: () { HapticFeedback.selectionClick(); setState(() => _selectedSlot = slot); },
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              decoration: BoxDecoration(
-                color: sel ? AppColors.teal : Colors.white,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: sel ? AppColors.teal : AppColors.line)),
-              child: Text(slot, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600,
-                color: sel ? Colors.white : AppColors.ink2))));
-        }).toList()),
-    ]);
+  Widget _serviceHeader(BuildContext context) {
+    final t = Theme.of(context).textTheme;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(children: [
+          ServiceImage(asStr(widget.service['id']), size: 52),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(asStr(widget.service['name']), style: t.titleMedium),
+              Text(
+                  widget.basePrice > 0
+                      ? 'Estimate ₹${widget.basePrice} · final price agreed with provider'
+                      : 'Price quoted by provider',
+                  style: t.bodySmall?.copyWith(color: AppColors.muted)),
+            ]),
+          ),
+        ]),
+      ),
+    );
   }
 
-  Widget _buildAddressStep() {
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      const Text('Service Address', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.ink)),
-      const Text('Where should the provider come?', style: TextStyle(fontSize: 13, color: AppColors.muted)),
-      const SizedBox(height: 14),
-
-      // Location status — no re-fetch, just show saved status
-      Container(padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: _customerLat != null ? AppColors.greenSoft : AppColors.yellow.withOpacity(0.1),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: _customerLat != null ? AppColors.green : AppColors.yellow)),
-        child: Row(children: [
-          Icon(_customerLat != null ? Icons.location_on_rounded : Icons.location_off_rounded,
-              color: _customerLat != null ? AppColors.green : AppColors.yellow, size: 20),
-          const SizedBox(width: 10),
-          Expanded(child: Text(
-            _customerLat != null ? 'GPS location loaded ✓' : 'Location not set — go to Home to enable',
-            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600,
-              color: _customerLat != null ? AppColors.green : AppColors.yellow))),
-          if (_customerLat != null)
-            GestureDetector(
-              onTap: _openMapView,
-              child: Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(color: AppColors.green.withOpacity(0.15), borderRadius: BorderRadius.circular(8)),
-                child: const Row(mainAxisSize: MainAxisSize.min, children: [
-                  Icon(Icons.map_rounded, color: AppColors.green, size: 14),
-                  SizedBox(width: 4),
-                  Text('View', style: TextStyle(fontSize: 12, color: AppColors.green, fontWeight: FontWeight.w700)),
-                ]))),
-        ])),
-
-      const SizedBox(height: 14),
-      _label('FULL ADDRESS *'),
-      const SizedBox(height: 6),
-      TextField(controller: _addressCtrl, maxLines: 3,
-        decoration: InputDecoration(
-          hintText: 'House no, Street, Area, City',
-          helperText: 'Edit if needed',
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)))),
-
-      const SizedBox(height: 14),
-      Row(children: [
-        const Text('LANDMARK', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.muted, letterSpacing: 0.5)),
-        const SizedBox(width: 6),
-        Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-          decoration: BoxDecoration(color: AppColors.red.withOpacity(0.1), borderRadius: BorderRadius.circular(4)),
-          child: const Text('REQUIRED', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w800, color: AppColors.red))),
-      ]),
-      const SizedBox(height: 6),
-      TextField(controller: _landmarkCtrl,
-        decoration: InputDecoration(
-          hintText: 'Near school, temple, hospital, etc.',
-          helperText: 'Helps provider find you easily',
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)))),
-
-      const SizedBox(height: 20),
-      const Text('Your Contact Details', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.ink)),
-      const SizedBox(height: 4),
-      const Text('Pre-filled from your profile', style: TextStyle(fontSize: 12, color: AppColors.muted)),
+  List<Widget> _whenStep(BuildContext context) {
+    final t = Theme.of(context).textTheme;
+    final w = _window;
+    final hours = _hours;
+    return [
+      Text('When?', style: t.titleMedium),
       const SizedBox(height: 12),
+      LayoutBuilder(builder: (ctx, c) {
+        final cw = (c.maxWidth - 12) / 2;
+        return Wrap(spacing: 12, runSpacing: 12, children: [
+          for (final tw in _windows)
+            SizedBox(width: cw, child: _windowCard(ctx, tw)),
+        ]);
+      }),
+      if (!w.isAsap) ...[
+        const SizedBox(height: 24),
+        Text('Day', style: t.titleMedium),
+        const SizedBox(height: 8),
+        Wrap(spacing: 8, runSpacing: 8, children: [
+          for (var i = 0; i < 3; i++)
+            ChoiceChip(
+              label: Text(_dayName(i)),
+              selected: i == _selDay,
+              onSelected: (_) => _pickDay(i),
+            ),
+        ]),
+        const SizedBox(height: 20),
+        DropdownButtonFormField<String>(
+          key: ValueKey('hour-$_selWindow-$_selDay'),
+          value: hours.contains(_selHour) ? _selHour : '',
+          isExpanded: true,
+          decoration: const InputDecoration(
+            labelText: 'Preferred hour (optional)',
+            prefixIcon: Icon(Icons.schedule_rounded),
+          ),
+          items: [
+            const DropdownMenuItem(value: '', child: Text('Any time in this window')),
+            ...hours.map((h) => DropdownMenuItem(value: h, child: Text(h))),
+          ],
+          onChanged: (v) => setState(() => _selHour = v ?? ''),
+        ),
+      ],
+      const SizedBox(height: 16),
+      InfoBanner(
+        w.isAsap
+            ? 'We will send the nearest available provider right away.'
+            : '${_dayName(_selDay)}, ${w.sub} — the provider confirms the exact time.',
+        icon: w.isAsap ? Icons.bolt_rounded : Icons.event_rounded,
+      ),
+    ];
+  }
 
-      // Name — read only with edit icon
-      _label('FULL NAME'),
-      const SizedBox(height: 6),
+  Widget _windowCard(BuildContext context, _TimeWindow tw) {
+    final t = Theme.of(context).textTheme;
+    final open = _windowOpen(tw, _selDay);
+    final sel = tw.key == _selWindow;
+    return Opacity(
+      opacity: open ? 1 : 0.45,
+      child: Material(
+        color: sel ? AppColors.tealSoft : Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: BorderSide(color: sel ? AppColors.teal : AppColors.line, width: sel ? 2 : 1),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: open ? () => _pickWindow(tw.key) : null,
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(children: [
+              Icon(tw.icon, color: sel ? AppColors.teal2 : AppColors.muted),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(tw.key,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: t.titleSmall?.copyWith(color: sel ? AppColors.teal2 : AppColors.ink)),
+                  Text(tw.sub,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: t.bodySmall?.copyWith(color: AppColors.muted)),
+                ]),
+              ),
+            ]),
+          ),
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _addressStep(BuildContext context) {
+    final t = Theme.of(context).textTheme;
+    final hasLoc = _customerLat != null;
+    return [
+      Card(
+        color: hasLoc ? AppColors.greenSoft : AppColors.yellowSoft,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: ListTile(
+          leading: _locating
+              ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2.5))
+              : Icon(hasLoc ? Icons.where_to_vote_rounded : Icons.location_off_outlined,
+                  color: hasLoc ? AppColors.green : AppColors.yellow),
+          title: Text(
+            _locating
+                ? 'Detecting your location…'
+                : _pinnedOnMap
+                    ? 'Location updated — pinned on map'
+                    : hasLoc
+                        ? 'Location updated'
+                        : 'Location blocked — tap to retry (allow permission)',
+            style: t.titleSmall?.copyWith(color: hasLoc ? AppColors.green : AppColors.yellow),
+          ),
+          trailing: hasLoc
+              ? TextButton(onPressed: _openMapView, child: const Text('View'))
+              : null,
+          onTap: hasLoc || _locating ? null : _captureGPS,
+        ),
+      ),
+      const SizedBox(height: 12),
+      OutlinedButton.icon(
+        onPressed: _pinOnMap,
+        icon: const Icon(Icons.map_outlined),
+        label: const Text('Pin exact location on map'),
+      ),
+      const SizedBox(height: 20),
+      TextField(
+        controller: _addressCtrl,
+        minLines: 2,
+        maxLines: 3,
+        decoration: const InputDecoration(
+          labelText: 'Your location (auto-detected)',
+          hintText: 'Street / building / area',
+          prefixIcon: Icon(Icons.place_outlined),
+        ),
+      ),
+      const SizedBox(height: 12),
+      TextField(
+        controller: _flatCtrl,
+        textCapitalization: TextCapitalization.words,
+        decoration: const InputDecoration(
+          labelText: 'Flat / Door No & Building *',
+          hintText: 'e.g. Flat 302, Sai Residency',
+          prefixIcon: Icon(Icons.apartment_rounded),
+        ),
+      ),
+      const SizedBox(height: 12),
+      TextField(
+        controller: _landmarkCtrl,
+        decoration: const InputDecoration(
+          labelText: 'Landmark (optional)',
+          hintText: 'Near school, temple, hospital…',
+          prefixIcon: Icon(Icons.flag_outlined),
+        ),
+      ),
+      const SizedBox(height: 24),
+      Text('Contact', style: t.titleMedium),
+      const SizedBox(height: 12),
       TextField(
         controller: _nameCtrl,
-        decoration: InputDecoration(
-          hintText: 'Your name',
-          prefixIcon: const Icon(Icons.person_rounded, color: AppColors.teal, size: 18),
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-          filled: true,
-          fillColor: AppColors.bg)),
-
-      const SizedBox(height: 14),
-      _label('MOBILE NUMBER'),
-      const SizedBox(height: 6),
+        textCapitalization: TextCapitalization.words,
+        decoration: const InputDecoration(
+            labelText: 'Full name', prefixIcon: Icon(Icons.person_outline_rounded)),
+      ),
+      const SizedBox(height: 12),
       TextField(
         controller: _phoneCtrl,
         keyboardType: TextInputType.phone,
         maxLength: 10,
-        decoration: InputDecoration(
-          hintText: '10-digit mobile number',
+        decoration: const InputDecoration(
+          labelText: 'Mobile number *',
+          hintText: '10-digit mobile',
           counterText: '',
-          prefixIcon: const Icon(Icons.phone_rounded, color: AppColors.teal, size: 18),
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-          filled: true,
-          fillColor: AppColors.bg)),
-    ]);
+          prefixIcon: Icon(Icons.phone_outlined),
+        ),
+      ),
+      const SizedBox(height: 12),
+      TextField(
+        controller: _notesCtrl,
+        minLines: 1,
+        maxLines: 3,
+        decoration: const InputDecoration(
+          labelText: 'Notes for provider (optional)',
+          prefixIcon: Icon(Icons.edit_note_rounded),
+        ),
+      ),
+    ];
   }
 
-  Widget _buildConfirmStep() {
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      const Text('Booking Summary', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.ink)),
-      const SizedBox(height: 16),
-      // Service card
-      Container(padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(14),
-          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 8)]),
-        child: Row(children: [
-          Container(width: 52, height: 52,
-            decoration: BoxDecoration(color: Color(widget.service['color'] != null ? widget.service['color'] as int : 0xFF1B6B7A), borderRadius: BorderRadius.circular(12)),
-            child: Center(child: Text(widget.service['icon'] as String, style: const TextStyle(fontSize: 28)))),
-          const SizedBox(width: 14),
-          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(widget.service['name'] as String, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.ink)),
-            Text(widget.service['cat'] as String, style: const TextStyle(fontSize: 12, color: AppColors.muted)),
-          ])),
-          Text('Rs.${widget.basePrice}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: AppColors.teal)),
-        ])),
-      const SizedBox(height: 12),
-      _infoCard(Icons.calendar_today_rounded, 'Date & Time', '${_selectedDate.day}/${_selectedDate.month}/${_selectedDate.year} at $_selectedSlot'),
-      const SizedBox(height: 8),
-      _infoCard(Icons.location_on_rounded, 'Address', _addressCtrl.text.trim()),
-      const SizedBox(height: 8),
-      _infoCard(Icons.place_rounded, 'Landmark', _landmarkCtrl.text.trim()),
-      const SizedBox(height: 8),
-      _infoCard(Icons.person_rounded, 'Contact', '${_nameCtrl.text.trim()} • ${_phoneCtrl.text.trim()}'),
+  List<Widget> _confirmStep(BuildContext context) {
+    final t = Theme.of(context).textTheme;
+    final landmark = _landmarkCtrl.text.trim();
+    return [
+      Card(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Column(children: [
+            DetailRow(Icons.event_rounded, _whenSummary, label: 'When'),
+            DetailRow(Icons.place_outlined,
+                '$_fullAddress${landmark.isNotEmpty ? ' (near $landmark)' : ''}',
+                label: 'Address'),
+            DetailRow(Icons.person_outline_rounded,
+                '${_nameCtrl.text.trim()} · ${_phoneCtrl.text.trim()}',
+                label: 'Contact'),
+          ]),
+        ),
+      ),
       if (widget.summary.isNotEmpty) ...[
-        const SizedBox(height: 12),
-        Container(width: double.infinity, padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(color: AppColors.tealSoft, borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: AppColors.teal.withOpacity(0.2))),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const Text('SELECTED SERVICES', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: AppColors.teal, letterSpacing: 0.5)),
-            const SizedBox(height: 10),
-            Wrap(spacing: 8, runSpacing: 8, children: widget.summary.map((s) {
-              final parts = s.split(' > ');
-              return Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: AppColors.teal.withOpacity(0.3))),
-                child: Row(mainAxisSize: MainAxisSize.min, children: [
-                  const Icon(Icons.check_circle_rounded, color: AppColors.teal, size: 14),
-                  const SizedBox(width: 6),
-                  Text(parts.length > 1 ? parts.sublist(1).join(' > ') : s,
-                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.teal)),
-                ]));
-            }).toList()),
-          ])),
+        const SectionHeader('Selected', padding: EdgeInsets.fromLTRB(4, 20, 4, 8)),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              for (final s in widget.summary)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    const Icon(Icons.check_circle_rounded, size: 18, color: AppColors.teal),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                          s.contains(' > ') ? s.split(' > ').sublist(1).join(' > ') : s,
+                          style: t.bodyMedium),
+                    ),
+                  ]),
+                ),
+            ]),
+          ),
+        ),
       ],
+      const SizedBox(height: 16),
+      Card(
+        color: AppColors.tealSoft,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(children: [
+            Expanded(child: Text('Estimated price', style: t.titleMedium?.copyWith(color: AppColors.teal2))),
+            Text(widget.basePrice > 0 ? '₹${widget.basePrice}' : 'Quoted by provider',
+                style: (widget.basePrice > 0 ? t.headlineSmall : t.titleMedium)
+                    ?.copyWith(color: AppColors.teal2, fontWeight: FontWeight.w700)),
+          ]),
+        ),
+      ),
       const SizedBox(height: 12),
-      Container(padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(color: AppColors.tealSoft, borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: AppColors.teal.withOpacity(0.3))),
-        child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-          const Text('Total Amount', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.teal)),
-          Text('Rs.${widget.basePrice}', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: AppColors.teal)),
-        ])),
-      const SizedBox(height: 8),
-      const Text('Payment collected after service completion.', style: TextStyle(fontSize: 12, color: AppColors.muted)),
-    ]);
+      Text(
+        'Nothing is charged now. A provider will quote the final price, which you accept in the app '
+        'before work starts. You pay after the service is completed.',
+        style: t.bodySmall?.copyWith(color: AppColors.muted, height: 1.4),
+      ),
+    ];
   }
+}
 
-  Widget _label(String text) => Text(text,
-    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.muted, letterSpacing: 0.5));
+/// Horizontal 3-step indicator under the app bar.
+class _StepIndicator extends StatelessWidget {
+  final int step;
+  final List<String> labels;
+  const _StepIndicator({required this.step, required this.labels});
 
-  Widget _infoCard(IconData icon, String title, String value) {
-    return Container(padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 6)]),
-      child: Row(children: [
-        Icon(icon, color: AppColors.teal, size: 20),
-        const SizedBox(width: 12),
-        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(title, style: const TextStyle(fontSize: 11, color: AppColors.muted, fontWeight: FontWeight.w600)),
-          const SizedBox(height: 2),
-          Text(value, style: const TextStyle(fontSize: 13, color: AppColors.ink, fontWeight: FontWeight.w600)),
-        ])),
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context).textTheme;
+    final children = <Widget>[];
+    for (var i = 0; i < labels.length; i++) {
+      final done = i < step;
+      final cur = i == step;
+      children.add(Row(mainAxisSize: MainAxisSize.min, children: [
+        CircleAvatar(
+          radius: 12,
+          backgroundColor: done || cur ? AppColors.teal : AppColors.line,
+          foregroundColor: done || cur ? Colors.white : AppColors.muted,
+          child: done
+              ? const Icon(Icons.check_rounded, size: 16)
+              : Text('${i + 1}', style: t.labelMedium?.copyWith(color: cur ? Colors.white : AppColors.muted)),
+        ),
+        const SizedBox(width: 6),
+        Text(labels[i],
+            style: t.labelLarge?.copyWith(
+                color: cur ? AppColors.ink : AppColors.muted,
+                fontWeight: cur ? FontWeight.w700 : FontWeight.w500)),
       ]));
+      if (i < labels.length - 1) {
+        children.add(Expanded(
+          child: Container(
+            height: 2,
+            margin: const EdgeInsets.symmetric(horizontal: 8),
+            color: i < step ? AppColors.teal : AppColors.line,
+          ),
+        ));
+      }
+    }
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+      child: Row(children: children),
+    );
   }
 }

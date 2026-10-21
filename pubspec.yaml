@@ -15,7 +15,6 @@ dependencies:
   flutter_local_notifications: ^17.2.4
   shared_preferences: ^2.1.2
   http: ^1.1.0
-  google_sign_in: ^6.1.6
   geolocator: ^11.0.0
   geocoding: ^3.0.0
   flutter_map: ^6.1.0

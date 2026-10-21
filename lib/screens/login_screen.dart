@@ -2,14 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import '../services/api_service.dart';
-import '../services/firebase_service.dart';
 import '../utils/booking_format.dart';
 import '../utils/theme.dart';
+import 'email_otp_screen.dart';
 import 'home_screen.dart';
 
 /// Login / register — same account as the website (Firebase e-mail +
-/// password, or Google). Wording and error messages follow the web app
-/// (customers.php?action=web_login).
+/// password). Wording and error messages follow the web app
+/// (customers.php?action=web_login). Registration verifies the e-mail
+/// with a 6-digit code first (otp.php → EmailOtpScreen → otp_token).
 class LoginScreen extends StatefulWidget {
   /// true: pop(true) after a successful sign-in (e.g. opened from a
   /// service page or a tab) instead of restarting at Home.
@@ -31,6 +32,17 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _showPwd = false;
   String _error = '';
 
+  // otp_token from EmailOtpScreen — reused while valid (e.g. a retry after
+  // a network error) so the user isn't asked for a new code.
+  String _otpToken = '';
+  String _otpEmail = '';
+  DateTime _otpUntil = DateTime(2000);
+
+  String? _validOtpToken(String email) =>
+      (_otpToken.isNotEmpty && _otpEmail == email && DateTime.now().isBefore(_otpUntil))
+          ? _otpToken
+          : null;
+
   void _done() {
     if (!mounted) return;
     if (widget.returnOnSuccess && Navigator.canPop(context)) {
@@ -43,7 +55,9 @@ class _LoginScreenState extends State<LoginScreen> {
 
   Future<void> _syncProfile({String? authMethod}) async {
     try {
-      await ApiService.ensureCustomerProfile(authMethod: authMethod);
+      final email = (FirebaseAuth.instance.currentUser?.email ?? '').toLowerCase();
+      await ApiService.ensureCustomerProfile(
+          authMethod: authMethod, otpToken: _validOtpToken(email));
     } on ApiException catch (e) {
       if (mounted) showSnack(context, 'Signed in, but profile sync failed: ${e.message}', error: true);
     }
@@ -53,26 +67,6 @@ class _LoginScreenState extends State<LoginScreen> {
         _isRegister = !_isRegister;
         _error = '';
       });
-
-  // ── Google ──
-  Future<void> _signInGoogle() async {
-    setState(() { _loading = true; _error = ''; });
-    try {
-      final result = await FirebaseService.signInWithGoogle();
-      if (result == null) {
-        if (mounted) setState(() => _loading = false);
-        return;
-      }
-      await _syncProfile(authMethod: 'google');
-      _done();
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _error = 'Google sign-in failed. Please try again or use email/password.';
-      });
-    }
-  }
 
   // ── Email login ──
   Future<void> _login() async {
@@ -152,9 +146,41 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
     if (email.isEmpty || pwd.isEmpty) { setState(() => _error = 'Enter email and password'); return; }
+    if (!RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(email)) {
+      setState(() => _error = 'Enter a valid email');
+      return;
+    }
     if (pwd.length < 8) { setState(() => _error = 'Password must be at least 8 characters'); return; }
     setState(() { _loading = true; _error = ''; });
 
+    // 1. Verify the e-mail with a 6-digit code (skipped while a token is valid)
+    var otpToken = _validOtpToken(email);
+    if (otpToken == null) {
+      int wait;
+      try {
+        wait = await ApiService.sendEmailOtp(email);
+      } on ApiException catch (e) {
+        if (mounted) {
+          setState(() {
+            _loading = false;
+            _error = e.message;
+            if (e.message.startsWith('Email already registered')) _isRegister = false;
+          });
+        }
+        return;
+      }
+      if (!mounted) return;
+      setState(() => _loading = false);
+      otpToken = await Navigator.push<String>(context,
+          MaterialPageRoute(builder: (_) => EmailOtpScreen(email: email, resendAfter: wait)));
+      if (otpToken == null || otpToken.isEmpty || !mounted) return; // back / change email
+      _otpToken = otpToken;
+      _otpEmail = email;
+      _otpUntil = DateTime.now().add(const Duration(minutes: 28));
+      setState(() { _loading = true; _error = ''; });
+    }
+
+    // 2. Firebase account  3. profile (customers.php register + otp_token)
     try {
       final cred = await FirebaseAuth.instance
           .createUserWithEmailAndPassword(email: email, password: pwd);
@@ -185,7 +211,8 @@ class _LoginScreenState extends State<LoginScreen> {
         fcm = await FirebaseMessaging.instance.getToken();
       } catch (_) {}
       await ApiService.registerCustomer(
-        name: name, phone: phone, email: email, fcmToken: fcm, authMethod: 'email');
+          name: name, phone: phone, email: email, fcmToken: fcm, authMethod: 'email',
+          otpToken: otpToken);
     } on ApiException catch (e) {
       if (mounted) {
         showSnack(context, 'Account created, but saving your profile failed: ${e.message}',
@@ -278,8 +305,10 @@ class _LoginScreenState extends State<LoginScreen> {
                 controller: _emailCtrl,
                 keyboardType: TextInputType.emailAddress,
                 autofillHints: const [AutofillHints.email],
-                decoration: const InputDecoration(
-                    labelText: 'Email', prefixIcon: Icon(Icons.mail_outline_rounded)),
+                decoration: InputDecoration(
+                    labelText: 'Email',
+                    helperText: _isRegister ? "We'll send a 6-digit code to verify it" : null,
+                    prefixIcon: const Icon(Icons.mail_outline_rounded)),
               ),
               const SizedBox(height: 12),
               TextField(
@@ -325,22 +354,11 @@ class _LoginScreenState extends State<LoginScreen> {
                     ? const SizedBox(
                         width: 22, height: 22,
                         child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white))
-                    : Text(_isRegister ? 'Create Account' : 'Login'),
-              ),
-              const SizedBox(height: 16),
-              Row(children: [
-                const Expanded(child: Divider()),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  child: Text('or', style: t.bodyMedium?.copyWith(color: AppColors.muted)),
-                ),
-                const Expanded(child: Divider()),
-              ]),
-              const SizedBox(height: 16),
-              OutlinedButton.icon(
-                onPressed: _loading ? null : _signInGoogle,
-                icon: const Icon(Icons.g_mobiledata_rounded, size: 28),
-                label: const Text('Continue with Google'),
+                    : Text(!_isRegister
+                        ? 'Login'
+                        : _validOtpToken(_emailCtrl.text.trim().toLowerCase()) != null
+                            ? 'Create Account'
+                            : 'Send OTP'),
               ),
               const SizedBox(height: 16),
               Center(

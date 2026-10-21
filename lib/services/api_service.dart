@@ -123,6 +123,7 @@ class ApiService {
     double? lng,
     String? fcmToken,
     String authMethod = 'email',
+    String? otpToken,
   }) async {
     final data = await _post('customers.php', {
       if (name != null && name.isNotEmpty) 'name': name,
@@ -135,6 +136,7 @@ class ApiService {
       if (lng != null) 'lng': lng,
       if (fcmToken != null && fcmToken.isNotEmpty) 'fcm_token': fcmToken,
       'auth_method': authMethod,
+      if (otpToken != null && otpToken.isNotEmpty) 'otp_token': otpToken,
     }, params: {'action': 'register'});
     final customer = _map(data);
     if (customer.isNotEmpty) await saveCurrentUser(customer);
@@ -147,6 +149,7 @@ class ApiService {
     String? name,
     String? phone,
     String? authMethod,
+    String? otpToken,
   }) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) throw const ApiException('Please sign in first.', 401);
@@ -166,7 +169,33 @@ class ApiService {
       email: user.email ?? '',
       fcmToken: fcm,
       authMethod: method,
+      otpToken: otpToken,
     );
+  }
+
+  // ── EMAIL VERIFICATION CODE (otp.php) ───────────────────
+
+  /// E-mails a 6-digit code (otp.php?action=send). Returns the seconds until
+  /// a new code may be requested. Throws [ApiException] with the server
+  /// message (already registered, wait N seconds, could not send …).
+  static Future<int> sendEmailOtp(String email,
+      {String purpose = 'customer_register'}) async {
+    final data = _map(await _post('otp.php', {'email': email, 'purpose': purpose},
+        params: {'action': 'send'}));
+    final wait = data['resend_in'];
+    return wait is int ? wait : int.tryParse('$wait') ?? 60;
+  }
+
+  /// Checks the code (otp.php?action=verify) → otp_token (valid 30 min)
+  /// to send with the registration.
+  static Future<String> verifyEmailOtp(String email, String code,
+      {String purpose = 'customer_register'}) async {
+    final data = _map(await _post(
+        'otp.php', {'email': email, 'purpose': purpose, 'code': code},
+        params: {'action': 'verify'}));
+    final token = (data['otp_token'] ?? '').toString();
+    if (token.isEmpty) throw const ApiException('Verification failed. Please try again.');
+    return token;
   }
 
   /// Own customer profile, or null if it does not exist yet.

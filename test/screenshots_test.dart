@@ -12,9 +12,11 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hamaraservice_customer/screens/booking/booking_flow_screen.dart';
 import 'package:hamaraservice_customer/screens/booking/booking_status_screen.dart';
+import 'package:hamaraservice_customer/screens/email_otp_screen.dart';
 import 'package:hamaraservice_customer/screens/home_screen.dart';
 import 'package:hamaraservice_customer/screens/login_screen.dart';
 import 'package:hamaraservice_customer/screens/services/service_screen.dart';
+import 'package:hamaraservice_customer/services/api_service.dart';
 import 'package:hamaraservice_customer/utils/booking_format.dart' as fmt;
 import 'package:hamaraservice_customer/utils/service_visuals.dart';
 import 'package:hamaraservice_customer/utils/theme.dart';
@@ -289,5 +291,112 @@ void main() {
         await t.pump();
       }));
 
-  testWidgets('17 login', (t) => _shot(t, const LoginScreen(), '17_login'));
+  testWidgets('17 login', (t) async {
+    await _shot(t, const LoginScreen(), '17_login');
+    expect(find.textContaining('Google'), findsNothing);
+  });
+
+  testWidgets('18 register', (t) async {
+    await _shot(t, const LoginScreen(startInRegister: true), '18_register',
+        act: (t) async {
+      await t.enterText(find.byType(TextField).at(0), 'Priya Sharma');
+      await t.enterText(find.byType(TextField).at(1), '9876543210');
+      await t.enterText(find.byType(TextField).at(2), 'priya@example.com');
+      await t.enterText(find.byType(TextField).at(3), 'password1');
+      FocusManager.instance.primaryFocus?.unfocus();
+    });
+    expect(find.text('Send OTP'), findsOneWidget);
+    expect(find.textContaining('Google'), findsNothing);
+  });
+
+  // ── Email verification code (registration step 2) ──
+  EmailOtpScreen otp({Future<String> Function(String)? verify, Future<int> Function()? resend}) =>
+      EmailOtpScreen(
+        email: 'priya@example.com',
+        verify: verify ?? (c) async => 'tok-$c',
+        resend: resend ?? () async => 60,
+      );
+
+  testWidgets('19 email otp', (t) async {
+    await _shot(t, otp(), '19_email_otp', act: (t) async {
+      await t.enterText(find.byKey(const ValueKey('otp-field')), '482');
+    });
+    expect(find.text('Resend in 0:59'), findsOneWidget);
+    expect(find.text('Change email'), findsOneWidget);
+  });
+
+  testWidgets('20 email otp wrong code', (t) async {
+    await _shot(
+        t,
+        otp(verify: (c) async => throw const ApiException('Incorrect code. 4 attempts left.', 400)),
+        '20_email_otp_error', act: (t) async {
+      await t.enterText(find.byKey(const ValueKey('otp-field')), '123456'); // auto-submits
+      await t.pump();
+    });
+    expect(find.text('Incorrect code. 4 attempts left.'), findsOneWidget);
+  });
+
+  testWidgets('email otp: verify pops the otp_token, resend after countdown', (t) async {
+    String? popped;
+    var sends = 0;
+    await t.pumpWidget(MaterialApp(
+      theme: _theme,
+      home: Builder(
+        builder: (ctx) => Scaffold(
+          body: Center(
+            child: TextButton(
+              onPressed: () async {
+                popped = await Navigator.push<String>(ctx,
+                    MaterialPageRoute(builder: (_) => otp(resend: () async { sends++; return 60; })));
+              },
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ),
+    ));
+    await t.tap(find.text('open'));
+    await t.pumpAndSettle();
+    // countdown: resend disabled until 60 s have passed
+    await t.tap(find.textContaining('Resend in'));
+    await t.pump();
+    expect(sends, 0);
+    await t.pump(const Duration(seconds: 61));
+    expect(find.text('Resend code'), findsOneWidget);
+    await t.tap(find.text('Resend code'));
+    await t.pump();
+    expect(sends, 1);
+    expect(find.text('A new code has been sent'), findsOneWidget);
+    // too short → message, no verify
+    await t.enterText(find.byKey(const ValueKey('otp-field')), '12');
+    await t.tap(find.text('Verify & Create Account'));
+    await t.pump();
+    expect(find.text('Enter the 6-digit code from the email'), findsOneWidget);
+    // letters are filtered out; 6 digits auto-submit and pop the token
+    await t.enterText(find.byKey(const ValueKey('otp-field')), '65a4321');
+    await t.pumpAndSettle();
+    expect(popped, 'tok-654321');
+  });
+
+  testWidgets('email otp: change email pops null', (t) async {
+    String? popped = 'unset';
+    await t.pumpWidget(MaterialApp(
+      theme: _theme,
+      home: Builder(
+        builder: (ctx) => Scaffold(
+          body: TextButton(
+            onPressed: () async {
+              popped = await Navigator.push<String>(ctx, MaterialPageRoute(builder: (_) => otp()));
+            },
+            child: const Text('open'),
+          ),
+        ),
+      ),
+    ));
+    await t.tap(find.text('open'));
+    await t.pumpAndSettle();
+    await t.tap(find.text('Change email'));
+    await t.pumpAndSettle();
+    expect(popped, isNull);
+  });
 }

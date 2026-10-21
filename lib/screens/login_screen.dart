@@ -276,7 +276,7 @@ class _LoginScreenState extends State<LoginScreen> {
               Wrap(spacing: 8, runSpacing: 8, children: const [
                 _Badge(Icons.verified_rounded, 'Verified Pros'),
                 _Badge(Icons.payments_outlined, 'Pay After Service'),
-                _Badge(Icons.star_rounded, '4.8 Rated'),
+                _Badge(Icons.lock_rounded, 'OTP Secured'),
               ]),
               const SizedBox(height: 24),
               if (_isRegister) ...[

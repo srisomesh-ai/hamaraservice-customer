@@ -42,7 +42,7 @@ android {
     sourceSets { main.java.srcDirs += 'src/main/kotlin' }
     defaultConfig {
         applicationId "com.hamaraservice.customer"
-        minSdkVersion 21
+        minSdkVersion 24
         targetSdkVersion 34
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName

@@ -30,7 +30,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
   final _phoneCtrl = TextEditingController();
   final _addressCtrl = TextEditingController();
   final _cityCtrl = TextEditingController();
-  String _gender = 'male';
+  String _gender = '';
+  // Gender is set once; after that only support can change it (the server
+  // ignores a new value too).
+  bool _genderLocked = false;
+  String? _cityError;
   String _email = '';
   String _id = '';
   bool _loading = false;
@@ -78,7 +82,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (asStr(d['email']).isNotEmpty) _email = asStr(d['email']);
     if (asStr(d['id']).isNotEmpty) _id = asStr(d['id']);
     final g = asStr(d['gender']).toLowerCase();
-    _gender = ['male', 'female', 'other'].contains(g) ? g : 'male';
+    _gender = ['male', 'female', 'other'].contains(g) ? g : '';
+    _genderLocked = _gender.isNotEmpty;
   }
 
   Future<void> _load() async {
@@ -108,6 +113,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
       showSnack(context, 'Enter a valid 10-digit Indian mobile number', error: true);
       return;
     }
+    final cityErr = cityError(_cityCtrl.text);
+    setState(() => _cityError = cityErr);
+    if (cityErr != null) {
+      showSnack(context, cityErr, error: true);
+      return;
+    }
     final user = Session.user;
     if (user == null) return;
     setState(() => _saving = true);
@@ -115,18 +126,27 @@ class _ProfileScreenState extends State<ProfileScreen> {
       try {
         await user.updateDisplayName(_nameCtrl.text.trim());
       } catch (_) {}
-      await ApiService.registerCustomer(
+      final saved = await ApiService.registerCustomer(
         name: _nameCtrl.text.trim(),
         phone: phone,
         email: user.email ?? '',
         address: _addressCtrl.text.trim(),
         city: _cityCtrl.text.trim(),
-        gender: _gender,
+        gender: _genderLocked ? null : _gender,
         authMethod: user.providerData.any((p) => p.providerId == 'google.com')
             ? 'google'
             : 'email',
       );
-      if (mounted) showSnack(context, 'Profile saved', success: true);
+      if (mounted) {
+        setState(() {
+          final g = asStr(saved['gender']).toLowerCase();
+          if (['male', 'female', 'other'].contains(g)) {
+            _gender = g;
+            _genderLocked = true;
+          }
+        });
+        showSnack(context, 'Profile saved', success: true);
+      }
     } on ApiException catch (e) {
       if (mounted) showSnack(context, e.message.isNotEmpty ? e.message : 'Save failed', error: true);
     }
@@ -164,6 +184,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
       _phoneCtrl.clear();
       _addressCtrl.clear();
       _cityCtrl.clear();
+      _gender = '';
+      _genderLocked = false;
+      _cityError = null;
     });
     widget.onAuthChanged?.call();
     showSnack(context, 'Logged out');
@@ -341,60 +364,106 @@ class _ProfileScreenState extends State<ProfileScreen> {
         Card(
           child: Padding(
             padding: const EdgeInsets.all(16),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-              TextField(
-                controller: _nameCtrl,
-                textCapitalization: TextCapitalization.words,
-                decoration: const InputDecoration(
-                    labelText: 'Full name', prefixIcon: Icon(Icons.person_outline_rounded)),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _phoneCtrl,
-                keyboardType: TextInputType.phone,
-                maxLength: 10,
-                decoration: const InputDecoration(
-                    labelText: 'Mobile number',
-                    counterText: '',
-                    prefixIcon: Icon(Icons.phone_outlined)),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _addressCtrl,
-                minLines: 1,
-                maxLines: 3,
-                decoration: const InputDecoration(
-                    labelText: 'Default address', prefixIcon: Icon(Icons.home_outlined)),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _cityCtrl,
-                decoration: const InputDecoration(
-                    labelText: 'City', prefixIcon: Icon(Icons.location_city_outlined)),
-              ),
-              const SizedBox(height: 16),
-              Text('Gender', style: t.labelLarge?.copyWith(color: AppColors.muted)),
-              const SizedBox(height: 8),
-              SegmentedButton<String>(
-                segments: const [
-                  ButtonSegment(value: 'male', label: Text('Male')),
-                  ButtonSegment(value: 'female', label: Text('Female')),
-                  ButtonSegment(value: 'other', label: Text('Other')),
-                ],
-                selected: {_gender},
-                showSelectedIcon: false,
-                onSelectionChanged: (s) => setState(() => _gender = s.first),
-              ),
-              const SizedBox(height: 16),
-              FilledButton(
-                onPressed: _saving ? null : _save,
-                child: _saving
-                    ? const SizedBox(
-                        width: 22, height: 22,
-                        child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white))
-                    : const Text('Save changes'),
-              ),
-            ]),
+            child: AutofillGroup(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                // Explicit autofill hints so Android autofill never drops the
+                // login e-mail into a field without a hint (e.g. City).
+                TextField(
+                  controller: _nameCtrl,
+                  textCapitalization: TextCapitalization.words,
+                  keyboardType: TextInputType.name,
+                  autofillHints: const [AutofillHints.name],
+                  decoration: const InputDecoration(
+                      labelText: 'Full name', prefixIcon: Icon(Icons.person_outline_rounded)),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _phoneCtrl,
+                  keyboardType: TextInputType.phone,
+                  autofillHints: const [AutofillHints.telephoneNumberNational],
+                  maxLength: 10,
+                  decoration: const InputDecoration(
+                      labelText: 'Mobile number',
+                      counterText: '',
+                      prefixIcon: Icon(Icons.phone_outlined)),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _addressCtrl,
+                  minLines: 1,
+                  maxLines: 3,
+                  keyboardType: TextInputType.streetAddress,
+                  textCapitalization: TextCapitalization.words,
+                  autofillHints: const [AutofillHints.streetAddressLine1],
+                  decoration: const InputDecoration(
+                      labelText: 'Default address', prefixIcon: Icon(Icons.home_outlined)),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _cityCtrl,
+                  keyboardType: TextInputType.text,
+                  textCapitalization: TextCapitalization.words,
+                  autofillHints: const [AutofillHints.addressCity],
+                  maxLength: 60,
+                  onChanged: (_) {
+                    if (_cityError != null) setState(() => _cityError = null);
+                  },
+                  decoration: InputDecoration(
+                      labelText: 'City',
+                      hintText: 'e.g. Visakhapatnam',
+                      counterText: '',
+                      errorText: _cityError,
+                      errorMaxLines: 2,
+                      prefixIcon: const Icon(Icons.location_city_outlined)),
+                ),
+                const SizedBox(height: 16),
+                Text('Gender', style: t.labelLarge?.copyWith(color: AppColors.muted)),
+                const SizedBox(height: 8),
+                // Locked: still shows the saved gender, but taps are ignored.
+                IgnorePointer(
+                  ignoring: _genderLocked,
+                  child: Opacity(
+                    opacity: _genderLocked ? 0.6 : 1,
+                    child: SegmentedButton<String>(
+                      segments: const [
+                        ButtonSegment(value: 'male', label: Text('Male')),
+                        ButtonSegment(value: 'female', label: Text('Female')),
+                        ButtonSegment(value: 'other', label: Text('Other')),
+                      ],
+                      selected: _gender.isEmpty ? <String>{} : {_gender},
+                      emptySelectionAllowed: true,
+                      showSelectedIcon: _genderLocked,
+                      selectedIcon: const Icon(Icons.lock_outline_rounded, size: 16),
+                      onSelectionChanged: (s) {
+                        if (_genderLocked) return;
+                        setState(() => _gender = s.isEmpty ? '' : s.first);
+                      },
+                    ),
+                  ),
+                ),
+                if (_genderLocked)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Row(children: [
+                      const Icon(Icons.lock_outline_rounded, size: 14, color: AppColors.muted),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text("Gender can't be changed. Contact support if it's wrong.",
+                            style: t.bodySmall?.copyWith(color: AppColors.muted)),
+                      ),
+                    ]),
+                  ),
+                const SizedBox(height: 16),
+                FilledButton(
+                  onPressed: _saving ? null : _save,
+                  child: _saving
+                      ? const SizedBox(
+                          width: 22, height: 22,
+                          child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white))
+                      : const Text('Save changes'),
+                ),
+              ]),
+            ),
           ),
         ),
         const SectionHeader('More', padding: EdgeInsets.fromLTRB(4, 24, 4, 8)),

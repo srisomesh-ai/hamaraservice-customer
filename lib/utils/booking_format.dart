@@ -130,6 +130,21 @@ final RegExp indianMobileRegex = RegExp(r'^[6-9]\d{9}$');
 bool isValidIndianMobile(String input) =>
     indianMobileRegex.hasMatch(normalizeIndianMobile(input));
 
+/// City field check: null when OK (empty is allowed), else a message.
+/// Guards against autofill putting the login e-mail into City.
+String? cityError(String input) {
+  final c = input.trim();
+  if (c.isEmpty) return null;
+  if (c.contains('@')) {
+    return 'That looks like an e-mail address. Enter your city name, e.g. Visakhapatnam.';
+  }
+  if (c.length > 60) return 'City is too long (max 60 characters).';
+  if (!RegExp(r"^[\p{L}\p{M} .'\-]+$", unicode: true).hasMatch(c)) {
+    return "City can contain only letters, spaces and . - '";
+  }
+  return null;
+}
+
 // ── Provider price ranges (services.php?action=price_ranges) ──
 
 /// "₹300 – ₹900" when approved providers set a range for the service

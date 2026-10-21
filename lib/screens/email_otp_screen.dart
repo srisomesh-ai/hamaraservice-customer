@@ -179,15 +179,17 @@ class _EmailOtpScreenState extends State<EmailOtpScreen> {
                   : Text(widget.verifyLabel),
             ),
             const SizedBox(height: 12),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            // Wrap: on narrow phones "Change email" moves under "Resend"
+            Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 TextButton.icon(
                   onPressed: (_wait > 0 || _resending || _busy) ? null : _resend,
                   icon: _resending
                       ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
                       : const Icon(Icons.refresh_rounded, size: 20),
-                  label: Text(_wait > 0 ? 'Resend code in $_waitText' : 'Resend code'),
+                  label: Text(_wait > 0 ? 'Resend in $_waitText' : 'Resend code'),
                 ),
                 TextButton(
                   onPressed: _busy ? null : () => Navigator.pop(context),

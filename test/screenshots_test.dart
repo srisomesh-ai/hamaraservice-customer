@@ -321,7 +321,7 @@ void main() {
     await _shot(t, otp(), '19_email_otp', act: (t) async {
       await t.enterText(find.byKey(const ValueKey('otp-field')), '482');
     });
-    expect(find.text('Resend code in 0:59'), findsOneWidget);
+    expect(find.text('Resend in 0:59'), findsOneWidget);
     expect(find.text('Change email'), findsOneWidget);
   });
 
@@ -358,7 +358,7 @@ void main() {
     await t.tap(find.text('open'));
     await t.pumpAndSettle();
     // countdown: resend disabled until 60 s have passed
-    await t.tap(find.textContaining('Resend code in'));
+    await t.tap(find.textContaining('Resend in'));
     await t.pump();
     expect(sends, 0);
     await t.pump(const Duration(seconds: 61));

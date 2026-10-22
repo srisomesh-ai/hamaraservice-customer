@@ -1065,9 +1065,16 @@ class _BookingStatusScreenState extends State<BookingStatusScreen>
   List<Widget> _cancelled(Map<String, dynamic> b) {
     final reason = asStr(b['cancel_reason']);
     final by = asStr(b['cancelled_by']);
+    final byAdmin = by == 'admin';
     return [
       _hero(Icons.cancel_rounded, AppColors.red, 'Booking Cancelled',
-          'This booking was cancelled${by.isNotEmpty ? ' by $by' : ''}.${reason.isNotEmpty ? '\nReason: $reason' : ''}'),
+          byAdmin
+              ? 'This booking was cancelled by HamaraService.'
+              : 'This booking was cancelled${by.isNotEmpty ? ' by $by' : ''}.${reason.isNotEmpty ? '\nReason: $reason' : ''}'),
+      if (byAdmin && reason.isNotEmpty) ...[
+        const SizedBox(height: 12),
+        InfoBanner('Message from HamaraService: $reason', icon: Icons.support_agent_rounded),
+      ],
       const SizedBox(height: 12),
       FilledButton.icon(
         onPressed: _bookAgain,

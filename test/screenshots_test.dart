@@ -245,6 +245,16 @@ void main() {
           preview: _booking('price_quoted', {..._provider, 'quoted_price': 249, 'quote_expires_in': 262})),
       '12_status_quoted'));
 
+  testWidgets('12c status cancelled by admin', (t) => _shot(
+      t,
+      BookingStatusScreen(
+          bookingId: 'BK-20261020-4821',
+          preview: _booking('cancelled', {
+            'cancelled_by': 'admin',
+            'cancel_reason': 'Sorry, no service provider is available in your area right now. Please try again later, or call us at +91 93462 20090.',
+          })),
+      '12c_status_cancelled_admin'));
+
   testWidgets('13 status confirmed', (t) => _shot(
       t,
       BookingStatusScreen(

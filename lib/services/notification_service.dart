@@ -9,10 +9,10 @@ import '../screens/booking/booking_status_screen.dart';
 import 'api_service.dart';
 
 // ─────────────────────────────────────────────────────────────
-// Push notifications. The backend sends DATA-ONLY FCM messages
-// ({event, bookingId, title, body}), so the app always displays them
-// itself — in the foreground (onMessage) and in the background /
-// terminated state (onBackgroundMessage). Taps open the booking.
+// Push notifications. The backend sends FCM messages with a
+// notification block + data ({event, bookingId, title, body}): Android
+// shows them itself when the app is in the background or closed; in the
+// foreground the app shows them (onMessage). Taps open the booking.
 // ─────────────────────────────────────────────────────────────
 
 /// Global navigator so notification taps can open screens.
@@ -47,7 +47,8 @@ const NotificationDetails _details = NotificationDetails(
 // Time-sensitive events (quotes expire in 5 minutes, the provider is at the
 // door) wake the screen with a full-screen alert.
 const Set<String> _wakeEvents = {
-  'price_quoted', 'negotiation_final', 'service_started', 'completion_otp_ready',
+  'price_quoted', 'negotiation_final', 'start_otp_ready', 'service_started',
+  'completion_otp_ready',
 };
 
 const NotificationDetails _wakeDetails = NotificationDetails(
@@ -194,6 +195,7 @@ class NotificationService {
   /// tapped before the UI was ready.
   static void markHomeReady() {
     _homeReady = true;
+    syncToken();
     final pending = _pendingBookingId;
     _pendingBookingId = null;
     if (pending != null) _openBooking(pending);

@@ -9,9 +9,11 @@ import 'utils/theme.dart';
 import 'screens/splash_screen.dart';
 import 'services/api_service.dart';
 import 'services/notification_service.dart';
+import 'utils/haptics.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  Haptics.install();
   _installErrorScreen();
 
   // Only Firebase core is awaited before the first frame (with a time limit),

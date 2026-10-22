@@ -60,6 +60,9 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
   double? _customerLng;
   bool _pinnedOnMap = false;
   String _city = '';
+  // Name + phone already known (profile): shown as one line, editable on tap.
+  bool _contactKnown = false;
+  bool _editContact = false;
 
   // ── When? ──
   static const _asap = 'Now / ASAP';
@@ -193,6 +196,9 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
     try {
       final prefs = await SharedPreferences.getInstance();
       _city = prefs.getString('user_city') ?? '';
+      // Flat / landmark from the last booking
+      if (_flatCtrl.text.isEmpty) _flatCtrl.text = prefs.getString('hs_last_flat') ?? '';
+      if (_landmarkCtrl.text.isEmpty) _landmarkCtrl.text = prefs.getString('hs_last_landmark') ?? '';
     } catch (_) {}
     try {
       final profile = await ApiService.getCustomer();
@@ -219,6 +225,10 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
     }
     if (_phoneCtrl.text.isEmpty) {
       _phoneCtrl.text = normalizeIndianMobile(user?.phoneNumber ?? '');
+    }
+    if (mounted) {
+      setState(() => _contactKnown =
+          _nameCtrl.text.trim().isNotEmpty && isValidIndianMobile(_phoneCtrl.text));
     }
     // Web: always fetch a fresh precise location on the address step.
     await _captureGPS();
@@ -323,10 +333,12 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
         return false;
       }
       if (_nameCtrl.text.trim().isEmpty) {
+        setState(() => _editContact = true);
         _showError('Enter your name');
         return false;
       }
       if (!isValidIndianMobile(_phoneCtrl.text)) {
+        setState(() => _editContact = true);
         _showError('Enter valid mobile');
         return false;
       }
@@ -374,6 +386,11 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
         estPrice: widget.basePrice,
         summary: summary,
       );
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('hs_last_flat', _flatCtrl.text.trim());
+        await prefs.setString('hs_last_landmark', _landmarkCtrl.text.trim());
+      } catch (_) {}
       if (!mounted) return;
       Navigator.pushReplacement(
           context, MaterialPageRoute(builder: (_) => BookingStatusScreen(bookingId: bookingId)));
@@ -672,24 +689,39 @@ class _BookingFlowScreenState extends State<BookingFlowScreen> {
       const SizedBox(height: 24),
       Text('Contact', style: t.titleMedium),
       const SizedBox(height: 12),
-      TextField(
-        controller: _nameCtrl,
-        textCapitalization: TextCapitalization.words,
-        decoration: const InputDecoration(
-            labelText: 'Full name', prefixIcon: Icon(Icons.person_outline_rounded)),
-      ),
-      const SizedBox(height: 12),
-      TextField(
-        controller: _phoneCtrl,
-        keyboardType: TextInputType.phone,
-        maxLength: 10,
-        decoration: const InputDecoration(
-          labelText: 'Mobile number *',
-          hintText: '10-digit mobile',
-          counterText: '',
-          prefixIcon: Icon(Icons.phone_outlined),
+      if (_contactKnown && !_editContact)
+        Card(
+          margin: EdgeInsets.zero,
+          child: ListTile(
+            leading: const Icon(Icons.person_outline_rounded),
+            title: Text(_nameCtrl.text.trim()),
+            subtitle: Text(_phoneCtrl.text.trim()),
+            trailing: TextButton(
+              onPressed: () => setState(() => _editContact = true),
+              child: const Text('Change'),
+            ),
+          ),
+        )
+      else ...[
+        TextField(
+          controller: _nameCtrl,
+          textCapitalization: TextCapitalization.words,
+          decoration: const InputDecoration(
+              labelText: 'Full name', prefixIcon: Icon(Icons.person_outline_rounded)),
         ),
-      ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _phoneCtrl,
+          keyboardType: TextInputType.phone,
+          maxLength: 10,
+          decoration: const InputDecoration(
+            labelText: 'Mobile number *',
+            hintText: '10-digit mobile',
+            counterText: '',
+            prefixIcon: Icon(Icons.phone_outlined),
+          ),
+        ),
+      ],
       const SizedBox(height: 12),
       TextField(
         controller: _notesCtrl,

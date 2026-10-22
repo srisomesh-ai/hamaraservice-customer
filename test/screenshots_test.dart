@@ -255,6 +255,16 @@ void main() {
           })),
       '13_status_confirmed'));
 
+  testWidgets('13b status on the way', (t) => _shot(
+      t,
+      BookingStatusScreen(
+          bookingId: 'BK-20261020-4821',
+          preview: _booking('confirmed', {
+            ..._provider, 'quoted_price': 249, 'confirmed_price': 249, 'amount': 249,
+            'travel_started_at': '2026-10-22 10:05:00', 'provider_phone': '9123456780',
+          })),
+      '13b_status_on_the_way'));
+
   testWidgets('14 status active', (t) => _shot(
       t,
       BookingStatusScreen(

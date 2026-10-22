@@ -109,7 +109,7 @@ class AppTheme {
                   : AppColors.muted,
             )),
       ),
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         color: Colors.white,
         surfaceTintColor: Colors.white,
         elevation: 0,
@@ -192,7 +192,7 @@ class AppTheme {
         contentTextStyle: text.bodyMedium?.copyWith(color: Colors.white),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       ),
-      dialogTheme: DialogTheme(
+      dialogTheme: DialogThemeData(
         backgroundColor: Colors.white,
         surfaceTintColor: Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),

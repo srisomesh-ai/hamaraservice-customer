@@ -864,39 +864,49 @@ class _BookingStatusScreenState extends State<BookingStatusScreen>
   }
 
   // ── confirmed ───────────────────────────────────────────
+  // Provider steps: Start trip → I've arrived (start OTP sent) → enters OTP.
   List<Widget> _confirmed(Map<String, dynamic> b) {
     final t = Theme.of(context).textTheme;
     final otp = asStr(b['start_otp']);
+    final onTheWay = asStr(b['travel_started_at']).isNotEmpty;
     return [
-      _hero(Icons.verified_rounded, AppColors.green, 'Booking Confirmed', 'Provider is on the way'),
+      if (otp.isNotEmpty)
+        _hero(Icons.where_to_vote_rounded, AppColors.green, 'Provider has arrived',
+            'Share the Start OTP to begin the work')
+      else if (onTheWay)
+        _hero(Icons.two_wheeler_rounded, AppColors.teal, 'Provider is on the way',
+            'You will get the Start OTP when they reach you')
+      else
+        _hero(Icons.verified_rounded, AppColors.green, 'Booking Confirmed',
+            'We will notify you when the provider starts the trip'),
       const SizedBox(height: 12),
       _providerCard(b),
       const SizedBox(height: 12),
       if (otp.isNotEmpty)
         _OtpCard(
-          title: 'Start OTP — share when provider arrives',
+          title: 'Start OTP',
           otp: otp,
           note: 'Give this code to your provider to begin the work',
           color: AppColors.teal,
         )
-      else
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-              Text('Provider arrived?', style: t.titleMedium),
-              const SizedBox(height: 4),
-              Text('Generate the OTP and share it so they can start the work',
-                  style: t.bodyMedium?.copyWith(color: AppColors.muted)),
-              const SizedBox(height: 12),
-              FilledButton.icon(
-                onPressed: _busy ? null : _generateStartOtp,
-                icon: const Icon(Icons.key_rounded),
-                label: const Text('Generate OTP to Start'),
-              ),
-            ]),
+      else ...[
+        InfoBanner(
+          onTheWay
+              ? 'Your provider is coming. When they arrive, they will send you the Start OTP.'
+              : 'Your provider will start the trip soon. You will be notified.',
+          icon: onTheWay ? Icons.near_me_rounded : Icons.schedule_rounded,
+          tone: Tone.neutral,
+        ),
+        const SizedBox(height: 8),
+        Center(
+          child: TextButton.icon(
+            onPressed: _busy ? null : _generateStartOtp,
+            icon: const Icon(Icons.key_rounded, size: 18),
+            label: Text('Provider already at your door? Get Start OTP',
+                style: t.bodyMedium?.copyWith(color: AppColors.teal, fontWeight: FontWeight.w600)),
           ),
         ),
+      ],
     ];
   }
 

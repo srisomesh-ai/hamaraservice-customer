@@ -1136,6 +1136,25 @@ class _BookingStatusScreenState extends State<BookingStatusScreen>
             Text(s, style: t.labelMedium?.copyWith(color: AppColors.teal2, fontWeight: FontWeight.w700)),
           ]),
         );
+    String link(String key, RegExp ok) {
+      final v = asStr(b[key]);
+      return ok.hasMatch(v) ? v : '';
+    }
+    final insta = link('provider_instagram', RegExp(r'^https://([a-z]+\.)?instagram\.com/', caseSensitive: false));
+    final yt = link('provider_youtube', RegExp(r'^https://([a-z]+\.)?(youtube\.com|youtu\.be)/', caseSensitive: false));
+    final followers = asStr(b['provider_followers']).isEmpty ? '' : ' · ${asStr(b['provider_followers'])}';
+    Widget social(String url, IconData i, String s) => InkWell(
+          borderRadius: BorderRadius.circular(100),
+          onTap: () async {
+            HapticFeedback.selectionClick();
+            bool ok = false;
+            try {
+              ok = await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+            } catch (_) {}
+            if (!ok) _toast('Could not open the link', error: true);
+          },
+          child: pill(i, s),
+        );
     return Row(children: [
       _avatar(b, 26),
       const SizedBox(width: 12),
@@ -1148,6 +1167,11 @@ class _BookingStatusScreenState extends State<BookingStatusScreen>
             pill(Icons.star_rounded,
                 rating > 0 ? '${rating.toStringAsFixed(1)}${reviews > 0 ? ' ($reviews)' : ''}' : 'New',
                 const Color(0xFFF5A623)),
+            // Anchors / influencers: their social pages, so the customer
+            // knows who they are before confirming.
+            if (insta.isNotEmpty) social(insta, Icons.camera_alt_outlined, 'Instagram$followers'),
+            if (yt.isNotEmpty)
+              social(yt, Icons.play_circle_outline_rounded, 'YouTube${insta.isEmpty ? followers : ''}'),
           ]),
         ]),
       ),

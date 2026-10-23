@@ -18,8 +18,11 @@ class ServiceImage extends StatelessWidget {
   Widget build(BuildContext context) {
     final img = ServiceVisuals.image(svcId);
     final cat = HSCatalog.getById(svcId)?.cat ?? '';
-    final fallback = Icon(ServiceVisuals.categoryIcons[cat] ?? Icons.home_repair_service_outlined,
-        color: AppColors.teal, size: size * 0.5);
+    // Half the tile; tiles that fill their cell pass size: double.infinity.
+    final fallback = LayoutBuilder(
+        builder: (_, c) => Icon(ServiceVisuals.categoryIcons[cat] ?? Icons.home_repair_service_outlined,
+            color: AppColors.teal,
+            size: (size.isFinite ? size : c.biggest.shortestSide.isFinite ? c.biggest.shortestSide : 48) * 0.5));
     return Container(
       width: size,
       height: size,

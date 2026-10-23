@@ -348,6 +348,13 @@ class _ServiceScreenState extends State<ServiceScreen> {
               bottom: 0,
               top: 56,
               child: Image.asset(img, fit: BoxFit.contain),
+            )
+          else
+            Positioned(
+              right: 28,
+              bottom: 28,
+              child: Icon(ServiceVisuals.categoryIcons[_svc!.cat] ?? Icons.home_repair_service_outlined,
+                  size: 120, color: AppColors.teal.withValues(alpha: 0.35)),
             ),
           Positioned(
             left: 16,

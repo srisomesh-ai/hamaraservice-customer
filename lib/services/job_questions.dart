@@ -149,6 +149,19 @@ class JobQuestions {
       JobQuestion('howlong', 'For how long', 'For how long?', _howLong),
       JobQuestion('place', 'Location', 'Where?', ['Event / function', 'Home', 'Shop / office', 'Apartment / society', 'Construction site', 'Factory / warehouse']),
     ],
+    // Anchor / Emcee
+    'SVC035': [
+      JobQuestion('lang', 'Language', 'Which language should the anchor host in?', ['Telugu', 'Hindi', 'English', 'Tamil', 'Kannada'], multi: true),
+      JobQuestion('guests', 'Guests', 'How many guests?', ['Under 100', '100–300', '300–1000', 'More than 1000']),
+      JobQuestion('venue', 'Venue', 'Where is the event?', ['Function hall', 'Hotel / resort', 'Home', 'Outdoor / ground', 'College / office', 'Shop / store'], required: false),
+    ],
+    // Influencer Promotion
+    'SVC036': [
+      JobQuestion('promote', 'Promoting', 'What do you want to promote?', ['Shop / showroom', 'Restaurant / café', 'Event', 'Product', 'Service / business', 'Other']),
+      JobQuestion('visit', 'Visit', 'Should the influencer visit you?', ['Yes — visit my location', 'No — online only']),
+      JobQuestion('reach', 'Followers', 'Influencer size you prefer?', ['Any', '10K+ followers', '50K+ followers', '1 lakh+ followers'], required: false),
+      JobQuestion('lang', 'Language', 'Content language?', ['Telugu', 'Hindi', 'English', 'Tamil'], multi: true, required: false),
+    ],
   };
 
   static List<JobQuestion> forService(String svcId) => bySvc[svcId] ?? const [];

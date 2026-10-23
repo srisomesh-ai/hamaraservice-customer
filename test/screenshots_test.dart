@@ -245,6 +245,39 @@ void main() {
           preview: _booking('price_quoted', {..._provider, 'quoted_price': 249, 'quote_expires_in': 262})),
       '12_status_quoted'));
 
+  testWidgets('12b status quoted by an anchor (social links)', (t) => _shot(
+      t,
+      BookingStatusScreen(
+          bookingId: 'BK-20261020-4821',
+          preview: _booking('price_quoted', {
+            ..._provider,
+            'svc_id': 'SVC035',
+            'svc_name': 'Anchor / Emcee',
+            'quoted_price': 3500,
+            'quote_expires_in': 262,
+            'provider_instagram': 'https://instagram.com/ravi.anchor',
+            'provider_youtube': 'https://youtube.com/@RaviAnchor',
+            'provider_followers': '25K',
+          })),
+      '12b_status_quoted_social',
+      act: (t) async {
+        expect(find.text('Instagram · 25K'), findsOneWidget);
+        expect(find.text('YouTube'), findsOneWidget);
+      }));
+
+  testWidgets('06b service anchor (no photo)', (t) => _shot(
+      t,
+      const ServiceScreen(
+        svcId: 'SVC035',
+        svcData: {'id': 'SVC035', 'name': 'Anchor / Emcee'},
+        previewPrices: {
+          'event': {'wedding': 2999, 'birthday': 2999, 'opening': 2999, 'college': 3999, 'corporate': 4999, 'other': 2999},
+          'duration': {'h4': 1500, 'fullday': 3500},
+        },
+        previewRange: {'min': 2999, 'max': 8499, 'provider_count': 2},
+      ),
+      '06b_service_anchor'));
+
   testWidgets('12c status cancelled by admin', (t) => _shot(
       t,
       BookingStatusScreen(
